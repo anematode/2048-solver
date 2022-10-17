@@ -1,6 +1,7 @@
 // Correctness testing, performance testing
 #include "2048.h"
 #include <vector>
+#include <functional>
 
 enum class TestType {
 	CORRECTNESS,
@@ -24,7 +25,7 @@ struct TestResult {
 			w += sprintf(mm, "TEST FAILED!\n");
 		}
 		w += sprintf(mm, "\n\tSummary: %s\n", summary);
-		w += sprintf(mm, "\n\tns per subtest: %3.3f\n", ns_per_subtest);
+		w += sprintf(mm, "\n\tns per subtest: %.3E\n", ns_per_subtest);
 
 		return mm;
 	}
@@ -74,7 +75,7 @@ uint64_t timespec_to_ns(struct timespec* ts) {
 }
 
 void add_test(std::function<uint64_t()> callback, TestType type, const char* test_name, const char* description) {
-	auto wrapped = [&] () -> TestResult {
+	auto wrapped = [=] () -> TestResult {
 		struct timespec start;
 		clock_gettime(CLOCK_REALTIME, &start);
 
@@ -83,7 +84,10 @@ void add_test(std::function<uint64_t()> callback, TestType type, const char* tes
 		struct timespec end;
 		clock_gettime(CLOCK_REALTIME, &end);
 
-		return TestResult{ .correct = true, .summary="", .ns_per_subtest=(timespec_to_ns(&end) - timespec_to_ns(&start)) / (double)tests };
+		uint64_t ns = (timespec_to_ns(&end) - timespec_to_ns(&start));
+		printf("%llu %llu\n", ns, tests);
+
+		return TestResult{  .summary="", .correct = true, .ns_per_subtest = (double)ns / (double)tests };
 	};
 
 	add_test(wrapped, type, test_name, description);
@@ -100,6 +104,7 @@ void run_all_tests() {
 	printf("Running all tests.\n");
 	for (Test& test : tests) {
 		test.run();
+		fflush(stdout);
 	}
 }
 
@@ -314,9 +319,9 @@ uint64_t test_scalar_move_perf() {
 			q = p.copy().move_right();
 			cases++;
 		}
+		free(q.to_string());
 	}
 
-	free(q.to_string()); // prevent opt
 
 	return cases;
 }

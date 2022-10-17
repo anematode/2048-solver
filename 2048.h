@@ -18,8 +18,6 @@
 #include <immintrin.h>
 #define VEC_128 __m128i
 #define set_vec128_u8 _mm_setr_epi8
-#define USE_SSE
-#define USE_VEC
 #endif
 
 int tile_to_repr(int tile, bool validate=true) {  // 4 -> 2, 2 -> 1, 0 -> 0
@@ -78,7 +76,7 @@ struct alignas(16) Position2048 {
 			b[k++] = tile_to_repr(i);
 		}
 
-		for (; k < 16; ++k) b[k] = 0;
+		memset(b + k, 16 - k, 0);
 	}
 
 	void clear() {
@@ -87,7 +85,7 @@ struct alignas(16) Position2048 {
 #elif defined(USE_NEON)
 		tiles.v = vmovq_n_s8(0);
 #else
-		memset(&tiles.v, 0, 16);
+		memset(tiles.b, 0, 16);
 #endif
 	}
 
@@ -95,7 +93,7 @@ struct alignas(16) Position2048 {
 #ifdef USE_VEC
 		tiles.v = p.tiles.v;
 #else
-		for (int i = 0; i < 16; ++i) tiles[i] = p.tiles.b[i];
+		for (int i = 0; i < 16; ++i) tiles.b[i] = p.tiles.b[i];
 #endif
 	}
 
@@ -357,7 +355,7 @@ struct alignas(16) Position2048 {
 		return vminvq_u8(vceqq_u8(tiles.v, b.tiles.v)) == 0xff;
 #endif
 #else
-		return memcmp(tiles.b, b.tiles.b, 16) != 0;
+		return memcmp(tiles.b, b.tiles.b, 16) == 0;
 #endif
 	}
 

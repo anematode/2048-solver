@@ -1,5 +1,5 @@
 
-FLAGS=-O2 -std=c++17
+FLAGS=-O2 -std=c++17 -g -Wall
 ARCH=$(shell uname -p)
 
 ifeq ($(ARCH), arm)
