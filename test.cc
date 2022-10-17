@@ -335,6 +335,7 @@ uint64_t test_avx512_move_perf() {
 
 uint64_t test_avx512_vbmi2_move_perf() {
 
+
 }
 
 void perf_move_right() {
