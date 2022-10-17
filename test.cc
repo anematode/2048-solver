@@ -69,14 +69,21 @@ void add_test(std::function<TestResult()> callback, TestType type, const char* t
 	tests.push_back(tt);
 }
 
-void add_test(std::function<int()> callback, TestType type, const char* test_name, const char* description) {
-	auto wrapped = [&] () -> TestResult {
-		callback();
-		return TestResult{ .correct = true, .summary="", .ns_per_subtest=0.0/0.0 };
-		/*time_t start = time(nullptr);
+uint64_t timespec_to_ns(struct timespec* ts) {
+	return ts->tv_nsec + ts->tv_sec * 1'000'000'000;
+}
 
-		TestResult r = {
-			.ns_per_*/
+void add_test(std::function<uint64_t()> callback, TestType type, const char* test_name, const char* description) {
+	auto wrapped = [&] () -> TestResult {
+		struct timespec start;
+		clock_gettime(CLOCK_REALTIME, &start);
+
+		auto tests = callback();
+
+		struct timespec end;
+		clock_gettime(CLOCK_REALTIME, &end);
+
+		return TestResult{ .correct = true, .summary="", .ns_per_subtest=(timespec_to_ns(&end) - timespec_to_ns(&start)) / (double)tests };
 	};
 
 	add_test(wrapped, type, test_name, description);
@@ -109,7 +116,7 @@ void expect_eq(const T& a, const T& b, const char* msg="unnamed", int line = -1)
 }
 
 // Test whether the rotations/reflections work as expected
-int test_perm8x16() {
+uint64_t test_perm8x16() {
 	using namespace Perm8x16;
 	Position2048 p{
 		0, 0, 4, 0,
@@ -186,7 +193,7 @@ int test_perm8x16() {
 }
 
 // Test different cases of the move right functionality
-int test_move() {
+uint64_t test_move() {
 	expect_eq(Position2048{
 			0, 0, 0, 0,
 			0, 0, 0, 0,
@@ -263,21 +270,70 @@ int test_move() {
 	return 1;
 }
 
+Position2048 from_u32(uint32_t a) {
+	Position2048 p;
+	for (int i = 0; i < 16; ++i) {
+		p.tiles.b[i] = (a & (0x3 << (2 * i))) >> (2 * i);
+	}
+
+	return p;
+}
+
 // Call a function on every position with numbers between 0 and 8. Intended for rigorous move testing.
 template <typename L>
-void for_each_position_0_thru_8(L callback) {
-	for (uint64_t a = 15; a < 1ULL << 32; ++a) {
+void for_each_position_0_thru_8(L callback, uint64_t step) {
+	for (uint64_t a = 0; a < 1ULL << 32; a += step) {
 		// spread bit pairs -> bytes
-
-		Position2048 p;
-		for (int i = 0; i < 16; ++i) {
-			p.tiles.b[i] = (a & (0x3 << (2 * i))) >> (2 * i);
-		}
-		callback(p);
+		
+		Position2048 p = from_u32(a);
+		if constexpr (!std::is_void_v<decltype(callback(p, 0))>)
+			callback(p, a);
+		else
+			callback(p);
 	}
 }
 
-void test_vec_move() {
+const int RANDOM_POSITION_CNT = 10000;
+Position2048 random_test_positions[RANDOM_POSITION_CNT];
+
+void fill_random_test_positions() {
+	uint64_t kk = 0;
+	for (int i = 0; i < 10000; ++i) {
+		random_test_positions[i] = from_u32(kk >> 13);
+		kk *= 4029302011;
+		kk += 35021;
+	}
+}
+
+uint64_t test_scalar_move_perf() {
+	uint64_t cases = 0;
+	Position2048 q;
+
+	for (int i = 0; i < 1000; ++i) {
+		for (const Position2048& p : random_test_positions) {
+			q = p.copy().move_right();
+			cases++;
+		}
+	}
+
+	free(q.to_string()); // prevent opt
+
+	return cases;
+}
+
+uint64_t test_neon_move_perf() {
+
+}
+
+uint64_t test_avx2_move_perf() {
+
+}
+
+uint64_t test_avx512_move_perf() {
+
+}
+
+uint64_t test_avx512_vbmi2_move_perf() {
 
 }
 
@@ -294,6 +350,8 @@ void add_x86_tests() {
 }
 
 int main() {
+	fill_random_test_positions();
+
 	add_test(
 			test_perm8x16,
 			TestType::CORRECTNESS,
@@ -306,6 +364,13 @@ int main() {
 		"Test whether the moves are performed correctly relative to a few test cases",
 		"test_move"
 			);
+
+	add_test(
+		test_scalar_move_perf,
+		TestType::SCALAR_PERF,
+		"Test the performance of the scalar move function, for random inputs -- how many ns per move?",
+		"test_scalar_move_perf"
+		);
 
 	add_neon_tests();
 	add_x86_tests();

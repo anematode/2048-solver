@@ -220,6 +220,7 @@ struct alignas(16) Position2048 {
 
 #ifdef USE_SSE
 	inline void _move_right_x86() {
+		// high throughput, but high latency, to use gather instructions
 
 	}
 #endif
