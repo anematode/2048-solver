@@ -5,6 +5,7 @@
 #include <string.h>
 #include <signal.h>
 #include <initializer_list>
+#include "dbg.h"
 
 #include <stdexcept>
 
@@ -18,6 +19,8 @@
 #include <immintrin.h>
 #define VEC_128 __m128i
 #define set_vec128_u8 _mm_setr_epi8
+#define USE_SSE
+#define USE_VEC
 #endif
 
 int tile_to_repr(int tile, bool validate=true) {  // 4 -> 2, 2 -> 1, 0 -> 0
@@ -76,7 +79,7 @@ struct alignas(16) Position2048 {
 			b[k++] = tile_to_repr(i);
 		}
 
-		memset(b + k, 16 - k, 0);
+		memset(b + k,  0, 16 - k);
 	}
 
 	void clear() {
@@ -218,8 +221,67 @@ struct alignas(16) Position2048 {
 
 #ifdef USE_SSE
 	inline void _move_right_x86() {
-		// high throughput, but high latency, to use gather instructions
+		// high throughput, but admittedly high latency, to use gather instructions
+#ifdef __AVX2__
+		__m128i positive = _mm_cmpgt_epi8(tiles.v, _mm_setzero_si128());
+		__m128i tiles_left = _mm_cmpeq_epi8(_mm_slli_epi32(tiles.v, 8), tiles.v);
 
+#ifndef __AVX512F__
+		// Convert to 7-bit lookups in each 32-bit chunk
+		int p_msk = _mm_movemask_epi8(positive);
+		int tl_msk = _mm_movemask_epi8(tiles_left);
+
+		__m128i h1 = _mm_set1_epi8(p_msk);
+		__m128i h2 = _mm_set1_epi8(tl_msk);
+
+		__m128i lookup_idxs = _mm_and_si128(
+				_mm_set1_epi8(
+#else
+		// Funny hack to collapse it using vpopcntd. We essentially multiply the highest
+		// bit by 8, next by 4, and so forth. Then a popcnt produces the desired bit pattern :3
+
+		__m128i lookup_idx = _mm_slli_epi32(_mm_popcnt_epi32(
+				_mm_and_si128(positive,
+				_mm_set1_epi32(0xff0f0301))
+			), 3);
+
+		lookup_idx |= _mm_popcnt_epi32(
+				_mm_and_si128(tiles_left,
+				_mm_set1_epi32(0x0f030100)));
+
+		bkp();
+#endif
+
+#ifdef __AVX512VBMI__
+		// idx = 4 bits for pattern of nonzero tiles, 3 bits for pattern of pairs of equal tiles.
+		// shuffle format is highest bit for whether it should be 0, then bit 5 for whether it
+		// should be the doubled index or not, and finally bits 0 and 1 for the index between 0
+		// and 3 within each 4-byte chunk. Convoluted, I know.
+		const uint8_t* x86_moveright_lt = {
+			// equal tiles
+			// 000/100          001/101             010/110             011/111
+
+			// 0000
+
+			128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+			128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+
+			// 0001
+
+		};
+
+		__m128i shuffle_idx = _mm_i32gather_epi32((const int32_t*)x86_moveright_lt, lookup_idx, 1);
+		__m128i doubled = _mm_add_epi8(tiles.v, tiles.v);
+
+		// shuffle idx fmt per byte
+		// first bit is for whether idx1 should be used. second bit is whether idx2 should be used.
+		// bit
+#else
+
+#endif
+#else
+		_move_right_scalar();
+#endif
 	}
 #endif
 
