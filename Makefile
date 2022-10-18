@@ -8,11 +8,11 @@ else
 	FLAGS:=$(FLAGS) -march=native
 endif
 
-test: test.cc 2048.h dbg.cc
-	g++ test.cc -o bin/test $(FLAGS)
+test: test.cc 2048.h dbg.cc 2048.cc
+	g++ test.cc 2048.cc -o bin/test $(FLAGS)
 
-main: main.cc 2048.h dbg.cc
-	g++ main.cc -o bin/main $(FLAGS)
+main: main.cc 2048.h dbg.cc 2048.cc
+	g++ main.cc 2048.cc -o bin/main $(FLAGS)
 
 .PHONY clean:
 	rm bin/*

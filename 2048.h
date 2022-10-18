@@ -1,3 +1,5 @@
+#pragma once
+
 #include <array>
 #include <stdio.h>
 #include <stdint.h>
@@ -23,10 +25,11 @@
 #define USE_VEC
 #endif
 
-int tile_to_repr(int tile, bool validate=true) {  // 4 -> 2, 2 -> 1, 0 -> 0
+inline int tile_to_repr(uint32_t tile, bool validate=true) {  // 4 -> 2, 2 -> 1, 0 -> 0
 	if (tile == 0) return 0;
 
-	int k = __builtin_ctz(tile);
+	int k = __builtin_ctzl(tile);
+
 	if (validate && (tile != (1 << k) || !k || k > 17)) {
 		fprintf(stderr, "Invalid tile %d; should be a power of 2 between 2 and 131072 inclusive, or 0\n", tile);
 		abort();
@@ -35,7 +38,7 @@ int tile_to_repr(int tile, bool validate=true) {  // 4 -> 2, 2 -> 1, 0 -> 0
 	return k;
 }
 
-int repr_to_tile(uint8_t repr) {
+inline int repr_to_tile(uint32_t repr) {
 	return (repr == 0) ? 0 : (1 << repr);
 }
 
@@ -55,6 +58,13 @@ namespace Perm8x16 {
 #undef PERM
 };
 
+static uint32_t compress_right_lut[65536];
+
+int fill_compress_right_lut();
+namespace {
+	int c = fill_compress_right_lut();
+}
+
 struct alignas(16) Position2048 {
 
 	// We store a position as 16 bytes. The mapping is 0 -> 0, 1 -> 2, et cetera.
@@ -70,16 +80,16 @@ struct alignas(16) Position2048 {
 
 	}
 
-	Position2048(std::initializer_list<uint8_t> l) {
+	Position2048(std::initializer_list<uint32_t> l) {
 		int k = 0;
 		uint8_t* b = tiles.b;
 
-		for (uint8_t i : l) {
+		for (uint32_t i : l) {
 			if (k > 15) break;
 			b[k++] = tile_to_repr(i);
 		}
 
-		memset(b + k,  0, 16 - k);
+		memset(b + k, 0, 16 - k);
 	}
 
 	void clear() {
@@ -121,7 +131,7 @@ struct alignas(16) Position2048 {
 #endif
 	}
 
-	uint64_t hash() {
+	uint64_t hash() const {
 		uint64_t b = 0;
 
 		for (int i = 0; i < 16; ++i) {
@@ -132,7 +142,7 @@ struct alignas(16) Position2048 {
 		return b;
 	}
 
-	inline uint8_t sum() {  // impossible to have a sum > 256
+	inline uint8_t tile_sum() {  // impossible to have a sum > 256
 #ifdef USE_VEC
 		VEC_128 v = tiles.v;
 
@@ -156,55 +166,7 @@ struct alignas(16) Position2048 {
 
 #ifdef USE_NEON
 	inline void _compress_right_neon() {
-		// TODO improve stupidity and rewrite in asm
-		uint8x16_t positive = vcgtq_u8(tiles.v, vmovq_n_u8(0));
 
-		// Convert to bit pattern, one per row
-		uint8x16_t bits = vandq_u8(positive, vmovq_n_u16(0x0180));
-		bits = vorrq_u8(vshrq_n_u32(bits, 21), vshrq_n_u32(bits, 7));
-
-		const uint8_t lookup_offsets[16] = { 0, 0, 0, 0, 16, 16, 16, 16, 32, 32, 32, 32, 48, 48, 48, 48 };
-		const uint8_t lookup_offsets2[16] = { 0, 16, 32, 48, 0, 16, 32, 48, 0, 16, 32, 48, 0, 16, 32, 48 };
-		const uint8_t broadcast_right[16] = { 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12 };
-		// const uint8_t broadcast_right[16] = { 3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15 };
-		const uint8_t identity[16] = { 
-			    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
-
-		const int8_t lookup[128] = {
-			// Transposed weirdly
-			-16, -16, -16, -16, -16, -16, -16, 0, -16, -16, -16, 1, -16, -16, 0, 1, -16, -16, -16, 2, -16, -16, 0, 2, -16, -16, 1, 2, -16, 0, 1, 2, -16, -16, 0, 3, -16, -16, 0, 3, -16, -16, 0, 3, -16, 0, 1, 3, -16, -16, 2, 3, -16, 0, 2, 3, -16, 0, 2, 3, 0, 1, 2, 3,
-
-			// Index hsb is right column full or not; index lsb is left column full or not. So, shift bits left visually,
-			// record index where 3 is leftmost and 0 is rightmost, and -1 is zero.
-			// 0000, 0001, 0010, 0011, 0100, 0101, 0110, 0111, 1000, 1001, 1010, 1011, 1100, 1101, 1110, 1111
-
-			
-			// Left most column (new).
-			   -16,  -16,  -16,  -16,  -16,  -16,  -16,  -16,  -16,  -16,  -16,  -16,  -16,  -16,  -16,   0,
-			// Second column from left (new).
-			   -16,  -16,  -16,  -16,  -16,  -16,  -16,   0,   -16,  -16,  -16,   0,   -16,    0,    0,   1,
-			// Third column from left (new).
-			   -16,  -16,  -16,    0,  -16,    0,    1,   1,     0,    0,    0,    1,    2,    2,    2,   2,
-			// Fourth column from left (new).
-			   -16,   0,     1,    1,    2,    2,    2,    2,    3,    3,    3,    3,    3,    3,    3,   3
-
-		};
-
-		// Transpose code
-		/*for (int i = 0; i < 16; ++i) {
-			printf("%d, %d, %d, %d, ", lookup[i], lookup[i+16], lookup[i+32], lookup[i+48]);
-		}
-		fflush(stdout);*/
-
-		bits = vqtbl1q_u8(bits, vld1q_u8(broadcast_right));
-		bits = vaddq_u8(bits, vld1q_u8(lookup_offsets2));
-
-		uint8x16x4_t tt = vld4q_u8((const uint8_t*)lookup);
-
-		uint8x16_t idx_shift = vqtbl4q_u8(tt, bits);
-		uint8x16_t idx_shift2 = vaddq_u8(idx_shift, vld1q_u8(broadcast_right));
-
-		tiles.v = vqtbl1q_u8(tiles.v, idx_shift2);
 	}
 
 	inline void _merge_right_neon() {
@@ -212,7 +174,6 @@ struct alignas(16) Position2048 {
 	}
 
 	inline void _move_right_neon() {
-		// TODO optimize, maybe
 		_compress_right_neon();
 		_merge_right_neon();
 		_compress_right_neon();
@@ -354,7 +315,7 @@ struct alignas(16) Position2048 {
 		return s;
 	}
 
-	inline bool operator==(const Position2048& b) const {
+	inline bool operator==(const Position2048& b) const noexcept {
 #ifdef USE_VEC
 #ifdef USE_SSE
 		return _mm_movemask_epi8(_mm_cmpeq_epi8(tiles.v, b.tiles.v)) == 0xffff;
@@ -366,21 +327,45 @@ struct alignas(16) Position2048 {
 #endif
 	}
 
-	inline bool operator !=(const Position2048& b) const {
+	inline bool operator !=(const Position2048& b) const noexcept {
 		return !(*this == b);
 	}
 
-	// Compress to 64-bit integer. We do this in a slightly funky way. First, note that we can use 4 bits for
-	// each of the sixteen entries if we restrict to 0 through 32768. Therefore we need special handling only
-	// for compressing positions with 65536 and 131072 (which would otherwise correspond to 16 and 17).
-	//
-	// Observe that a position can have at most 2 65536 entries and one 131072 entry (and only one of each
-	// if both are present). Therefore if we can find some simple conditions that positions with tiles <= 32768
-	// do not satisfy, we can use this space for other stuff.
-	// 
-	// We use the following conditions:
-	//   - there cannot be a 
-	uint64_t compress() {
-		return 0;
+	// Compress to 64-bit integer. 65536 tiles will become 0. Lowest significant bit is top-left corner, highest is bottom-right.
+	uint64_t compress_u64() const noexcept {
+#if defined(USE_SSE) && defined(__BMI2__)
+		uint64_t a = _mm_extract_epi64(tiles.v, 1);
+		uint64_t b = _mm_castsi128_si64(tiles.v);
+
+		const uint64_t low_nibbles = 0x0f0f0f0f0f0f0f0f;
+
+		return (_pext_u64(a, low_nibbles) << 32) + _pext_u64(b, low_nibbles);
+#else
+		uint64_t r = 0;
+
+		for (int i = 0; i < 16; ++i) {
+			r |= ((uint64_t)tiles.b[i] & 0xf) << (4 * i);
+		}
+
+		return r;
+#endif
+	}
+
+	Position2048& decompress_u64(uint64_t c) noexcept {
+#if defined(USE_SSE) && defined(__BMI2__)
+		const uint64_t low_nibbles = 0x0f0f0f0f0f0f0f0f;
+
+		uint64_t a = _pdep_u64(c, low_nibbles);
+		uint64_t b = _pdep_u64(c >> 32, low_nibbles);
+
+		tiles.v = _mm_set_epi64x(a, b);
+#else
+		for (int i = 0; i < 16; ++i) {
+			tiles.b[i] = c & 0xf;
+			c >>= 4;
+		}
+#endif
+
+		return *this;
 	}
 };

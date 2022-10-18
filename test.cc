@@ -85,7 +85,6 @@ void add_test(std::function<uint64_t()> callback, TestType type, const char* tes
 		clock_gettime(CLOCK_REALTIME, &end);
 
 		uint64_t ns = (timespec_to_ns(&end) - timespec_to_ns(&start));
-		printf("%llu %llu\n", ns, tests);
 
 		return TestResult{  .summary="", .correct = true, .ns_per_subtest = (double)ns / (double)tests };
 	};
@@ -111,10 +110,25 @@ void run_all_tests() {
 // For correctness testing
 template <typename T>
 void expect_eq(const T& a, const T& b, const char* msg="unnamed", int line = -1) {
+	auto to_string = ([&] (const T& k) -> char* {
+			char* cc = (char*)malloc(50);
+			if constexpr (std::is_integral_v<T>) {
+				sprintf(cc, std::is_signed_v<T> ? "%lli" : "%llu", k);
+			} else {	
+				sprintf(cc, "%s", k.to_string());
+			}
+			return cc;
+	});
+
 	if (a != b) {
 		printf("Expected equality (test %s, line %i)\n", msg, line);
-		printf("Found\n%s\n", a.to_string());
-		printf("Expected\n%s", b.to_string());
+
+		char* s = to_string(a);
+		printf("Found\n%s\n", s);
+		free(s);
+		s = to_string(b);
+		printf("Expected\n%s\n", s);
+		free(s);
 
 		abort();
 	}
@@ -322,23 +336,95 @@ uint64_t test_scalar_move_perf() {
 		free(q.to_string());
 	}
 
+	return cases;
+}
+
+int test_compress_u64() {
+	// Correctness
+	expect_eq(Position2048{
+			0, 0, 0, 0,
+			0, 0, 0, 0,
+			0, 0, 0, 0,
+			0, 0, 0, 0
+			}.compress_u64(), 0ULL, "compress_u64", __LINE__);
+	expect_eq(Position2048{
+			0, 0, 0, 0,
+			0, 2, 0, 0,
+			0, 0, 0, 0,
+			0, 0, 16, 4
+			}.compress_u64(), 0x2400'0000'0010'0000ULL, "compress_u64", __LINE__);
+	expect_eq(Position2048{
+			0, 0, 0, 0,
+			8, 0, 0, 0,
+			0, 0, 64, 0,
+			16, 0, 0, 0
+			}.compress_u64(), 0x0004'0600'0003'0000ULL, "compress_u64", __LINE__);
+	expect_eq(Position2048{
+			0, 0, 0, 16,
+			0, 0, 32, 0,
+			0, 32768, 0, 0,
+			16384, 0, 0, 0
+			}.compress_u64(), 0x000e'00f0'0500'4000ULL, "compress_u64", __LINE__);
+
+	return 1;
+}
+
+int test_compress_u64_perf() {
+	uint64_t cases = 0;
+
+	for (int i = 0; i < 1000; ++i) {
+		for (const Position2048& p : random_test_positions) {
+			prevent_opt(p.compress_u64());
+			cases++;
+		}
+	}
+
+	return cases;
+}
+
+int test_decompress_u64_perf() {
+	uint64_t cases = 0;
+	int cnt = sizeof(random_test_positions) / sizeof(Position2048);
+	uint64_t* cc = (uint64_t*)aligned_alloc(cnt, sizeof(uint64_t));
+
+	int i = 0;
+	for (const Position2048& p : random_test_positions) {
+		cc[i++] = p.compress_u64();
+	}
+
+	for (int i = 0; i < 1000; ++i) {
+		for (int i = 0; i < cnt; ++i) {
+			prevent_opt(Position2048{}.decompress_u64(cc[i]));
+			cases++;
+		}
+	}
+
+	// Correctness
+	for (int i = 0; i < cnt; ++i) {
+		expect_eq(Position2048{}.decompress_u64(cc[i]), random_test_positions[i],
+				"decompress_u64", __LINE__);
+
+	}
 
 	return cases;
 }
 
 uint64_t test_neon_move_perf() {
-
+	return 0;
 }
 
 uint64_t test_avx2_move_perf() {
+	return 0;
 
 }
 
 uint64_t test_avx512_move_perf() {
 
+	return 0;
 }
 
 uint64_t test_avx512_vbmi2_move_perf() {
+	return 0;
 
 }
 
@@ -354,8 +440,26 @@ void add_x86_tests() {
 
 }
 
+int test_tile_to_repr() {
+#define TEST(n) expect_eq(tile_to_repr(1 << n), n, "test_tile_to_repr", __LINE__);
+	expect_eq(0, 0, "test_tile_to_repr", __LINE__);
+	TEST(1) TEST(2) TEST(3)
+	TEST(4) TEST(5) TEST(6) TEST(7)
+	TEST(8) TEST(9) TEST(10) TEST(11)
+	TEST(12) TEST(13) TEST(14) TEST(15)
+#undef TEST
+	return 1;
+}	
+
+
 int main() {
+
+	test_tile_to_repr();
+
 	fill_random_test_positions();
+	test_compress_u64();
+
+	return 0;
 
 	add_test(
 			test_perm8x16,
@@ -377,42 +481,28 @@ int main() {
 		"test_scalar_move_perf"
 		);
 
+	add_test(
+		test_compress_u64,
+		TestType::CORRECTNESS,
+		"Test the correctness of compression to a 64-bit integer",
+		"test_compress_u64"
+		);
+	add_test(
+		test_compress_u64_perf,
+		TestType::SCALAR_PERF,
+		"Test speed of u64 compression",
+		"test_compress_u64_perf"
+		);
+	add_test(
+		test_decompress_u64_perf,
+		TestType::SCALAR_PERF,
+		"Test speed and correctness of u64 decompression",
+		"test_compress_u64_perf"
+		);
+
 	add_neon_tests();
 	add_x86_tests();
 
 	run_all_tests();
 	summarize_all_tests();
 }
-
-#if 0
-int main() {
-	Position2048 p{
-		0, 0, 0, 2,
-		2, 8, 4, 4,
-		2, 0, 0, 2,
-		8, 8, 8, 8
-	};
-
-	p.move_right();
-
-	//test_perm8x16();
-	//test_move();
-	
-	for_each_position_0_thru_8([&] (Position2048& p) {
-			Position2048 correct = p.copy();
-			correct._move_right_scalar();
-			Position2048 vec = p.copy();
-			vec._move_right_neon();
-
-			if (correct != vec) {
-				puts("Original:");	
-				puts(p.to_string());
-				puts("Correct:");	
-				puts(correct.to_string());
-				puts("Vector:");	
-				puts(vec.to_string());
-				abort();
-			}
-	});
-}
-#endif
