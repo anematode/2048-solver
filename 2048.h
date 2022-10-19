@@ -58,12 +58,20 @@ namespace Perm8x16 {
 #undef PERM
 };
 
-static uint32_t compress_right_lut[65536];
+static uint32_t move_right_lut[65536];
 
-int fill_compress_right_lut();
+int fill_move_right_lut();
 namespace {
-	int c = fill_compress_right_lut();
+	int c = fill_move_right_lut();
 }
+
+static const uint8_t com_x_weights[16] = {
+	-201, -1, 1, 201, -201, -1, 1, 201, -201, -1, 1, 201, -201, -1, 1, 201
+};
+
+static const uint8_t com_y_weights[16] = {
+	-201, -201, -201, -201, -1, -1, -1, -1, 1, 1, 1, 1, 201, 201, 201, 201
+};
 
 struct alignas(16) Position2048 {
 
@@ -368,4 +376,89 @@ struct alignas(16) Position2048 {
 
 		return *this;
 	}
+
+	int scalar_com_x() {
+		
+	}
+};
+
+#ifdef __AVX512F__
+
+
+// For multiple positions, store as packed u64. count should be either 1, 2 (NEON/SSE), 4 (AVX2) or 8 (AVX512)
+template<int count, std::enable_if_t<(count == 1) || (count == 2) || (count == 4) || (count == 8), bool> = true>
+struct Position2048V {
+
+#ifdef __AVX512F__
+	static constexpr bool vectorize = (count == 2) || (count == 4) | (count == 8);
+
+	using VEC_TYPE = (!vectorize) ? uint64_t : ((count == 2) ? __m128i : ((count == 4) ? __m256i : __m512i));
+
+#elif __AVX2__
+	static constexpr bool vectorize = (count == 2) || (count == 4);
+
+	using VEC_TYPE = (!vectorize) ? uint64_t : ((count == 2) ? __m128i : __m256i);
+#else //__ARM_NEON__, eventually...
+	static constexpr bool vectorize = false;
+
+	using VEC_TYPE = uint64_t;
+#endif
+	union {
+		uint64_t b[count];
+		VEC_TYPE v;
+	} tiles;
+
+	// count == 2, count == 4, count == 8.
+#define COND_VEC_F(name1, name2, name3) ((count == 2) ? name1 : ((count == 4) ? name2 : name3))
+
+	private:
+	template <int idx, std::enable_if_t<vectorize, bool> = true>
+	inline uint64_t _extract_vec_entry() {
+		using extract_lowest = COND_VEC_F(_mm_castsi128_si64, _mm256_castsi128_si64, _mm512_castsi128_si64);
+		using extract_idx = COND_VEC_F(_mm_extract_epi64, _mm256_extract_epi64, _mm512_extract_epi64);
+		       
+			(count == 2) ? _mm_extract_epi64 : ((count == 4) ? _mm256_extract_epi64 : ((count == 8) ? _mm512_castsi128_si64));
+
+		if constexpr (idx == 0) {
+
+		}
+	}
+
+	public:	
+
+	Position2048V(const Position2048V& p) {
+		if constexpr (vectorize)
+			tiles.v = p.v;
+		else
+			memcpy(tiles.b, p.tiles.b, sizeof(tiles));
+	}
+
+	Position2048V& operator=(const Position2048V& P) {
+		if constexpr (vectorize)
+			tiles.v = p.v;
+		else
+			memcpy(tiles.b, p.tiles.b, sizeof(tiles));
+		return *this;
+	}
+
+	template <int idx = 0>
+	Position2048V insert_idx_u64(uint64_t a) {
+		static_assert(idx >= 0 && idx < count);
+
+		if constexpr (vectorize) {
+			return EXTRACT_VEC_ENTRY<idx>(tiles.v);
+		} else {
+			b[idx] = a;
+		}
+	}
+
+	template <int idx = 0>
+	uint64_t extract_idx_u64() {
+
+	}
+
+	Position2048V copy() {
+		return Position2048V(tiles.v);
+	}
+
 };
