@@ -290,12 +290,13 @@ uint64_t test_move() {
 }
 
 Position2048 from_u32(uint32_t a) {
-	Position2048 p;
+	uint64_t v = 0;
+
 	for (int i = 0; i < 16; ++i) {
-		p.tiles.b[i] = (a & (0x3 << (2 * i))) >> (2 * i);
+		v |= (a & (0x3 << (2 * i))) << (2 * i);
 	}
 
-	return p;
+	return Position2048(v);
 }
 
 // Call a function on every position with numbers between 0 and 8. Intended for rigorous move testing.
@@ -339,83 +340,13 @@ uint64_t test_scalar_move_perf() {
 	return cases;
 }
 
-int test_compress_u64() {
-	// Correctness
-	expect_eq(Position2048{
-			0, 0, 0, 0,
-			0, 0, 0, 0,
-			0, 0, 0, 0,
-			0, 0, 0, 0
-			}.compress_u64(), 0ULL, "compress_u64", __LINE__);
-	expect_eq(Position2048{
-			0, 0, 0, 0,
-			0, 2, 0, 0,
-			0, 0, 0, 0,
-			0, 0, 16, 4
-			}.compress_u64(), 0x2400'0000'0010'0000ULL, "compress_u64", __LINE__);
-	expect_eq(Position2048{
-			0, 0, 0, 0,
-			8, 0, 0, 0,
-			0, 0, 64, 0,
-			16, 0, 0, 0
-			}.compress_u64(), 0x0004'0600'0003'0000ULL, "compress_u64", __LINE__);
-	expect_eq(Position2048{
-			0, 0, 0, 16,
-			0, 0, 32, 0,
-			0, 32768, 0, 0,
-			16384, 0, 0, 0
-			}.compress_u64(), 0x000e'00f0'0500'4000ULL, "compress_u64", __LINE__);
-
-	return 1;
-}
-
-int test_compress_u64_perf() {
-	uint64_t cases = 0;
-
-	for (int i = 0; i < 1000; ++i) {
-		for (const Position2048& p : random_test_positions) {
-			prevent_opt(p.compress_u64());
-			cases++;
-		}
-	}
-
-	return cases;
-}
-
-int test_decompress_u64_perf() {
-	uint64_t cases = 0;
-	int cnt = sizeof(random_test_positions) / sizeof(Position2048);
-	uint64_t* cc = (uint64_t*)aligned_alloc(cnt, sizeof(uint64_t));
-
-	int i = 0;
-	for (const Position2048& p : random_test_positions) {
-		cc[i++] = p.compress_u64();
-	}
-
-	for (int i = 0; i < 1000; ++i) {
-		for (int i = 0; i < cnt; ++i) {
-			prevent_opt(Position2048{}.decompress_u64(cc[i]));
-			cases++;
-		}
-	}
-
-	// Correctness
-	for (int i = 0; i < cnt; ++i) {
-		expect_eq(Position2048{}.decompress_u64(cc[i]), random_test_positions[i],
-				"decompress_u64", __LINE__);
-
-	}
-
-	return cases;
-}
-
 uint64_t test_neon_move_perf() {
 	return 0;
 }
 
 uint64_t test_avx2_move_perf() {
 	return 0;
-
+1
 }
 
 uint64_t test_avx512_move_perf() {
@@ -426,6 +357,36 @@ uint64_t test_avx512_move_perf() {
 uint64_t test_avx512_vbmi2_move_perf() {
 	return 0;
 
+}
+
+uint64_t test_canonical() {
+	for (const Position2048& p : random_test_positions) {
+		Position2048 q = p.copy().make_canonical();
+
+		expect_eq(p.copy().rotate_90().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().rotate_180).make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().rotate_270().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().reflect_h().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().reflect_v().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().reflect_tr().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().reflect_tl().make_canonical(), q, "canonical", __LINE__);
+	}
+
+	return 1;
+}
+
+uint64_t test_canonical_2() {
+	for_each_position_0_thru_8([&] (const Position2048& p) -> {
+		Position2048 q = p.copy().make_canonical();
+
+		expect_eq(p.copy().rotate_90().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().rotate_180).make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().rotate_270().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().reflect_h().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().reflect_v().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().reflect_tr().make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().reflect_tl().make_canonical(), q, "canonical", __LINE__);
+	});
 }
 
 void perf_move_right() {
@@ -453,26 +414,20 @@ int test_tile_to_repr() {
 
 
 int main() {
-
-	test_tile_to_repr();
-
 	fill_random_test_positions();
-	test_compress_u64();
-
-	return 0;
 
 	add_test(
-			test_perm8x16,
-			TestType::CORRECTNESS,
-			"Test whether the in-place permutations on 16 elements are correct",
-			"test_perm8x16"
-			);
+		test_perm8x16,
+		TestType::CORRECTNESS,
+		"Test whether the in-place permutations on 16 elements are correct",
+		"test_perm8x16"
+		);
 	add_test(
 		test_move,
 		TestType::CORRECTNESS,
 		"Test whether the moves are performed correctly relative to a few test cases",
 		"test_move"
-			);
+		);
 
 	add_test(
 		test_scalar_move_perf,
@@ -482,23 +437,19 @@ int main() {
 		);
 
 	add_test(
-		test_compress_u64,
+		test_canonical,
 		TestType::CORRECTNESS,
-		"Test the correctness of compression to a 64-bit integer",
-		"test_compress_u64"
+		"Test whether canonical positions are consistent",
+		"test_canonical"
 		);
+
 	add_test(
-		test_compress_u64_perf,
-		TestType::SCALAR_PERF,
-		"Test speed of u64 compression",
-		"test_compress_u64_perf"
+		test_canonical_2,
+		TestType::CORRECTNESS,
+		"Test whether canonical positions are consistent hard core",
+		"test_canonical_2"
 		);
-	add_test(
-		test_decompress_u64_perf,
-		TestType::SCALAR_PERF,
-		"Test speed and correctness of u64 decompression",
-		"test_compress_u64_perf"
-		);
+
 
 	add_neon_tests();
 	add_x86_tests();

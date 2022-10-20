@@ -11,18 +11,30 @@
 
 #include <stdexcept>
 
+#define USE_NEON 0
+#define USE_VEC 0
+#define USE_SSE 0
+
 #ifdef __ARM_NEON__
 #include <arm_neon.h>
 #define VEC_128 int8x16_t
 #define set_vec128_u8 v
-#define USE_NEON
-#define USE_VEC
+
+#undef USE_NEON
+#undef USE_VEC
+
+#define USE_NEON 1
+#define USE_VEC 1
 #elif __AVX2__
 #include <immintrin.h>
 #define VEC_128 __m128i
 #define set_vec128_u8 _mm_setr_epi8
-#define USE_SSE
-#define USE_VEC
+
+#undef USE_SSE
+#undef USE_VEC
+
+#define USE_SSE 1
+#define USE_VEC 1
 #endif
 
 inline int tile_to_repr(uint32_t tile, bool validate=true) {  // 4 -> 2, 2 -> 1, 0 -> 0
@@ -58,146 +70,121 @@ namespace Perm8x16 {
 #undef PERM
 };
 
-static uint32_t move_right_lut[65536];
+extern uint16_t mr_lut_16[65536];
+extern uint32_t mr_lut_32[65536];
 
-int fill_move_right_lut();
-namespace {
-	int c = fill_move_right_lut();
+namespace detail {
+	int fill_mr_luts();
+	inline int c = fill_mr_luts();
 }
 
-static const uint8_t com_x_weights[16] = {
-	-201, -1, 1, 201, -201, -1, 1, 201, -201, -1, 1, 201, -201, -1, 1, 201
+static const int8_t com_x_weights[16] = {
+	-63, -1, 1, 63, -63, -1, 1, 63, -63, -1, 1, 63, -63, -1, 1, 63
 };
 
-static const uint8_t com_y_weights[16] = {
-	-201, -201, -201, -201, -1, -1, -1, -1, 1, 1, 1, 1, 201, 201, 201, 201
+static const int8_t com_y_weights[16] = {
+	-63, -63, -63, -63, -1, -1, -1, -1, 1, 1, 1, 1, 63, 63, 63, 63
 };
 
-struct alignas(16) Position2048 {
+static const uint64_t LO_NIBBLES = 0x0f0f0f0f'0f0f0f0f;
+static const uint64_t HI_NIBBLES = 0x0f0f0f0f'0f0f0f0f;
 
-	// We store a position as 16 bytes. The mapping is 0 -> 0, 1 -> 2, et cetera.
+struct Position2048 {
+	// We store a position as 8 bytes, one nibble each. The mapping is 0 -> 0, 1 -> 2, et cetera.
+	// We therefore cannot store 65536 or 131072 tiles. Sad!
 	
-	union {
-		alignas(16) uint8_t b[16];
-#ifdef USE_VEC
-		VEC_128 v;
-#endif
-	} tiles;
+	uint64_t tiles;	
 
 	Position2048() {
+		tiles = 0;
+	}
 
+	inline void set_tile(int idx, uint8_t value) {
+		uint64_t msk = 0xfULL << (4 * idx);
+		tiles = (tiles & ~msk) | ((uint64_t)(value & 0xf) << (4 * idx));
+	}
+
+	inline uint8_t get_tile(int idx) const {
+		uint64_t msk = 0xfULL << (4 * idx);
+
+		return (tiles & msk) >> (4 * idx);
 	}
 
 	Position2048(std::initializer_list<uint32_t> l) {
-		int k = 0;
-		uint8_t* b = tiles.b;
+		tiles = 0;
 
 		for (uint32_t i : l) {
-			if (k > 15) break;
-			b[k++] = tile_to_repr(i);
-		}
+			tiles |= (tile_to_repr(i));
+			tiles = ((tiles & 0xf) << 60) | (tiles >> 4);
 
-		memset(b + k, 0, 16 - k);
+		}
 	}
 
 	void clear() {
-#ifdef USE_SSE
-		tiles.v = _mm_setzero_si128();
-#elif defined(USE_NEON)
-		tiles.v = vmovq_n_s8(0);
-#else
-		memset(tiles.b, 0, 16);
-#endif
+		tiles = 0;
 	}
 
 	Position2048(const Position2048& p) {
-#ifdef USE_VEC
-		tiles.v = p.tiles.v;
-#else
-		for (int i = 0; i < 16; ++i) tiles.b[i] = p.tiles.b[i];
-#endif
+		tiles = p.tiles;
 	}
 
-#ifdef USE_VEC
-	Position2048(VEC_128 v) {
-		tiles.v = v;
+	Position2048(uint64_t a) {
+		tiles = a;
 	}
-#endif
+
+	Position2048& operator=(const Position2048& p) {
+		tiles = p.tiles;
+		return *this;
+	}
 
 	~Position2048() {
 
 	}
 
-	Position2048 copy() const {
-#ifdef USE_VEC
-		return Position2048{tiles.v};
-#else
-		Position2048 p;
-		memcpy(&p.tiles.b, tiles.b, 16);
-
-		return p;
-#endif
+	inline uint64_t lo_nibbles() const {
+		return tiles & LO_NIBBLES;
 	}
 
-	uint64_t hash() const {
-		uint64_t b = 0;
+	inline uint64_t hi_nibbles() const {
+		return tiles & HI_NIBBLES;
+	}
 
+	inline uint8_t tile_sum() const {  // impossible to have a sum > 256
+		uint64_t a = lo_nibbles() + (hi_nibbles() >> 4);
+
+		a = (a >> 32) + (a & (uint32_t)-1);
+		a = (a >> 16) + (a & (uint16_t)-1);
+		a = (a >> 8) + (a & 0xff);
+
+		return a;
+	}
+
+#if USE_VEC && defined(__BMI2__)
+	inline __m128i _to_sse_bytes() const {
+		return _mm_set_epi64(_pext_u64(p.tiles, LOW_NIBBLE), _pext_u64(p.tiles >> 32, LOW_NIBBLE));
+	}
+
+	inline Position2048& _from_sse_bytes(__m128i a) {
+		tiles = _pdep_u64(_mm_cvtsi128_si64(a), LOW_NIBBLE) | ((_pdep_u64(_mm_extract_epi64(a, 1), LOW_NIBBLE)) << 32);
+		return *this;
+	}
+#endif
+
+	inline Position2048& perm_self(const uint8_t* p) {
+#if USE_VEC && defined(__BMI2__)
+		return _from_sse_bytes(_mm_shuffle_epi8(_to_sse_bytes(),
+					_mm_load_si128((const __m128i*) p)));
+#endif
+		uint64_t v = 0;
 		for (int i = 0; i < 16; ++i) {
-			b *= tiles.b[i] * 16;
-			b += 1021;
+			v |= get_tile(p[i]);
+			v = ((v & 0xf) << 60) | (v >> 4);
 		}
 
-		return b;
+		tiles = v;
+
+		return *this;
 	}
-
-	inline uint8_t tile_sum() {  // impossible to have a sum > 256
-#ifdef USE_VEC
-		VEC_128 v = tiles.v;
-
-		// horizontal byte sum
-#ifdef USE_SSE
-		// Credit: https://stackoverflow.com/questions/36998538/fastest-way-to-horizontally-sum-sse-unsigned-byte-vector
-		__m128i ss = _mm_sad_epu8(v, _mm_setzero_si128());
-		return _mm_cvtsi128_si32(ss) + _mm_extract_epi16(ss, 4);
-#else
-		return (uint8_t)vaddvq_s8(v);
-#endif
-#else
-		uint8_t s = 0;	
-		for (int i = 0; i < 16; ++i) {
-			s = tiles.b[i];
-		}
-
-		return s;
-#endif
-	}
-
-#ifdef USE_NEON
-	inline void _compress_right_neon() {
-
-	}
-
-	inline void _merge_right_neon() {
-		// ...
-	}
-
-	inline void _move_right_neon() {
-		_compress_right_neon();
-		_merge_right_neon();
-		_compress_right_neon();
-	}
-#endif
-
-#ifdef USE_SSE
-	inline void _move_right_x86() {
-		// Strategy: compress right, merge right, compress rest
-#ifdef __AVX2__
-
-#else
-		_move_right_scalar();
-#endif
-	}
-#endif
 
 	// Transforms in place. Rotations are counterclockwise by convention. Use copy() first if you don't want to modify the original.
 	inline Position2048& rotate_90() {
@@ -212,10 +199,12 @@ struct alignas(16) Position2048 {
 		return perm_self(Perm8x16::rotate_270);
 	}
 
+	// Across y axis
 	inline Position2048& reflect_h() {
 		return perm_self(Perm8x16::reflect_h);
 	}
 
+	// Across x axis
 	inline Position2048& reflect_v() {
 		return perm_self(Perm8x16::reflect_v);
 	}
@@ -228,88 +217,30 @@ struct alignas(16) Position2048 {
 		return perm_self(Perm8x16::reflect_tl);
 	}
 
-	// Permute in place according to given permutation, return self
-	inline Position2048& perm_self(const uint8_t perm[16]) {
-#ifdef USE_VEC
-
-#ifdef USE_SSE
-		tiles.v = _mm_shuffle_epi8(tiles.v, _mm_load_si128((const __m128i*) perm));
-#else
-		tiles.v = vqtbl1q_u8(tiles.v, vld1q_u8(perm));
-#endif
-
-#else
-		uint8_t new_v[16];
-		for (int i = 0; i < 16; ++i) {
-			new_v[i] = tiles.b[perm[i]];
-		}
-		memcpy(tiles.b, new_v, 16);
-#endif
-
-		return *this;
-	}
-
-
-	inline void _merge_right_scalar() {  // see move_right
-		for (int i = 0; i < 4; ++i) {
-			uint8_t* row = tiles.b + 4 * i;
-
-			for (int j = 2; j >= 0; --j) {
-				if (row[j] && (row[j] == row[j + 1])) {
-					row[j + 1]++;
-					row[j] = 0;
-				}
-			}
-		}
-	}
-
-	inline void _collapse_col_scalar(int col) {	// see move_right
-		for (int i = 0; i < 4; ++i) {
-			uint8_t* row = tiles.b + 4 * i;
-
-			uint8_t a = row[col];
-			uint8_t b = row[col+1];
-			
-			if (b == 0) {
-				row[col] = 0;
-				row[col+1] = a;
-			}
-		}
-	}
-
-	inline void _move_right_scalar() {
-		_collapse_col_scalar(2);
-		_collapse_col_scalar(1);
-		_collapse_col_scalar(0);
-		_collapse_col_scalar(2);
-		_collapse_col_scalar(1);
-		_collapse_col_scalar(2);
-
-		_merge_right_scalar();
-
-		_collapse_col_scalar(1);
-		_collapse_col_scalar(0);
-	}
-
 	inline Position2048& move_right() {
+		uint16_t msk = -1;
 
-#ifdef USE_SSE
-		_move_right_x86();
-#elif 0 //defined(USE_NEON)
-		_move_right_neon();
-#else
-		_move_right_scalar();
-#endif
+		printf("%x %llx\n", tiles & msk, mr_lut_16[0x10]);
+
+		tiles = (uint64_t)mr_lut_16[tiles & msk] |
+			((uint64_t)mr_lut_16[(tiles >> 16) & msk] << 16) |
+			((uint64_t)mr_lut_16[(tiles >> 32) & msk] << 32) |
+			((uint64_t)mr_lut_16[(tiles >> 48) & msk] << 48);
+
+
 		return *this;
 	}
 
+	inline Position2048 copy() const {
+		return *this;
+	}
 
 	char* to_string() const {
 		char out[400];
 		char* end = out;
 
 		for (int i = 0; i < 16; ++i) {
-			end += sprintf(end, "%d", repr_to_tile(tiles.b[i]));
+			end += sprintf(end, "%d", repr_to_tile(get_tile(i)));
 			*end++ = (i % 4 == 3) ? '\n' : '\t';
 		}
 		
@@ -324,141 +255,267 @@ struct alignas(16) Position2048 {
 	}
 
 	inline bool operator==(const Position2048& b) const noexcept {
-#ifdef USE_VEC
-#ifdef USE_SSE
-		return _mm_movemask_epi8(_mm_cmpeq_epi8(tiles.v, b.tiles.v)) == 0xffff;
-#else
-		return vminvq_u8(vceqq_u8(tiles.v, b.tiles.v)) == 0xff;
-#endif
-#else
-		return memcmp(tiles.b, b.tiles.b, 16) == 0;
-#endif
+		return tiles == b.tiles;
 	}
 
 	inline bool operator !=(const Position2048& b) const noexcept {
 		return !(*this == b);
 	}
 
-	// Compress to 64-bit integer. 65536 tiles will become 0. Lowest significant bit is top-left corner, highest is bottom-right.
-	uint64_t compress_u64() const noexcept {
-#if defined(USE_SSE) && defined(__BMI2__)
-		uint64_t a = _mm_extract_epi64(tiles.v, 1);
-		uint64_t b = _mm_castsi128_si64(tiles.v);
+	inline void _compute_center_of_mass(int* com_x, int* com_y) {
+		// Dot product
 
-		const uint64_t low_nibbles = 0x0f0f0f0f0f0f0f0f;
-
-		return (_pext_u64(a, low_nibbles) << 32) + _pext_u64(b, low_nibbles);
-#else
-		uint64_t r = 0;
-
+		*com_x = *com_y = 0;
 		for (int i = 0; i < 16; ++i) {
-			r |= ((uint64_t)tiles.b[i] & 0xf) << (4 * i);
+			*com_x += get_tile(i) * com_x_weights[i];
+			*com_y += get_tile(i) * com_y_weights[i];
 		}
-
-		return r;
-#endif
 	}
 
-	Position2048& decompress_u64(uint64_t c) noexcept {
-#if defined(USE_SSE) && defined(__BMI2__)
-		const uint64_t low_nibbles = 0x0f0f0f0f0f0f0f0f;
+	inline Position2048& make_canonical() {
+		// The algorithm follows.
+		// 1. Compute the center of mass (c_x, c_y) of the solid. The edges are weighted as +-63, greater than 4 * 15.
+		// 2. If c_y < 0, flip the position vertically.
+		// 3. If c_x < 0, flip the position horizontally.
+		// 4. If c_x > c_y, flip the position across the top left-bottom right diagonal.
+		//
+		// There are also the following unlikely cases which are dealt with as branches rather than branchlessly:
+		// If c_y = 0 and c_x != 0:
+		// 	take the lexicographic maximum of the current position and the position flipped vertically
+		// If c_x = 0 and c_y != 0:
+		// 	... horizontally
+		// If c_x = 0 and c_y = 0:
+		// 	take the lexicographic maximum of all rotations (very slow but extremely rare)
 
-		uint64_t a = _pdep_u64(c, low_nibbles);
-		uint64_t b = _pdep_u64(c >> 32, low_nibbles);
+		int com_x, com_y;
+		_compute_center_of_mass(&com_x, &com_y);
 
-		tiles.v = _mm_set_epi64x(a, b);
-#else
-		for (int i = 0; i < 16; ++i) {
-			tiles.b[i] = c & 0xf;
-			c >>= 4;
+		if (com_y < 0)
+			reflect_h();
+		if (com_x < 0)
+			reflect_v();
+		if (com_x > com_y)
+			reflect_tl();
+
+		uint64_t cc = tiles;
+		if (__builtin_expect(com_x == 0, 0)) {
+			if (__builtin_expect(com_y == 0, 0)) {
+				// Try all 8 combinations...
+				// TODO: optimize with SSE
+
+				reflect_v();
+				tiles = std::max(tiles, cc);
+				reflect_h();
+				tiles = std::max(tiles, cc);
+				reflect_v();
+				tiles = std::max(tiles, cc);
+				reflect_tr();
+				tiles = std::max(tiles, cc);
+				reflect_h();
+				tiles = std::max(tiles, cc);
+				reflect_v();
+				tiles = std::max(tiles, cc);
+				reflect_h();
+				tiles = std::max(tiles, cc);
+			} else {
+				reflect_h();
+
+				tiles = std::max(tiles, cc);
+			}
+		} else if (__builtin_expect(com_y == 0, 0)) {
+			reflect_v();
+
+			tiles = std::max(tiles, cc);
 		}
-#endif
 
 		return *this;
 	}
-
-	int scalar_com_x() {
-		
-	}
 };
 
+namespace {
 #ifdef __AVX512F__
+	// slow, probably latency 6 and rtp 2
+	__attribute__((always_inline)) uint64_t _mm512_extract_epi64(__m512i a, const int idx) {
+		__m128i s = _mm256_extracti64x2_epi64(a, idx >> 1);
 
+		return (idx & 0) ? _mm_cvtsi128_si64(a, idx) : _mm_extract_epi64(a, idx);
+	}
 
-// For multiple positions, store as packed u64. count should be either 1, 2 (NEON/SSE), 4 (AVX2) or 8 (AVX512)
-template<int count, std::enable_if_t<(count == 1) || (count == 2) || (count == 4) || (count == 8), bool> = true>
+	__attribute__((always_inline)) __m512i _mm512_insert_epi64(uint64_t a, const int idx) {			
+		return _mm512_mask_broadcastq_epi64(a, 1 << idx, _mm_cvtsi64_si128(a));
+	}
+#endif
+}
+
+namespace {
+
+	inline uint64_t u64_set1_8 (uint8_t a) {
+		return (uint64_t)a * 0x01010101'01010101ULL;
+	}
+
+	inline uint64_t u64_set1_32 (uint32_t a) {
+		return a + ((uint64_t)a << 32);
+	}
+
+	inline uint64_t u64_or(uint64_t a, uint64_t b) {
+		return a | b;
+	}
+
+	inline uint64_t u64_and(uint64_t a, uint64_t b) {
+		return a & b;
+	}
+}
+
+// For multiple positions, store as packed u64. count should be either 1, 2 (NEON/SSE), 4 (AVX2) or 8 (AVX512) if vectorization is desired.
+template<int count,
+	bool force_no_vectorize=false,
+	std::enable_if_t<(count == 1) || (count == 2) || (count == 4) || (count == 8), bool> = true>
 struct Position2048V {
 
-#ifdef __AVX512F__
-	static constexpr bool vectorize = (count == 2) || (count == 4) | (count == 8);
+	static auto choose_vector_type() {
+		if constexpr (count == 1 || !vectorized) {
+			return uint64_t[count]{};
 
-	using VEC_TYPE = (!vectorize) ? uint64_t : ((count == 2) ? __m128i : ((count == 4) ? __m256i : __m512i));
-
-#elif __AVX2__
-	static constexpr bool vectorize = (count == 2) || (count == 4);
-
-	using VEC_TYPE = (!vectorize) ? uint64_t : ((count == 2) ? __m128i : __m256i);
-#else //__ARM_NEON__, eventually...
-	static constexpr bool vectorize = false;
-
-	using VEC_TYPE = uint64_t;
+#ifdef __AVX2__
+		} else if constexpr (count == 2) {
+			return _mm_setzero_si128();
+		} else if constexpr (count == 4) {
+			return _mm256_setzero_si256();
 #endif
+
+#ifdef __AVX512F__
+		} else 
+	}
+#ifdef __AVX512F__
+	static constexpr bool vectorize = ((count == 2) || (count == 4) || (count == 8)) && !force_no_vectorize;
+#elif __AVX2__
+	static constexpr bool vectorize = ((count == 2) || (count == 4)) && !force_no_vectorize;
+#else
+	static constexpr bool vectorize = false;
+#endif
+
+#define COND_VEC_F(_default, name1, name2, name3) (std::conditional_t<vectorize, std::conditional_t<(count == 2), name1, std::conditional_t<(count == 4), name2, name3>, _default>)
+	using VEC_TYPE = COND_VEC_F(uint64_t[count], __m128i, __m256i, __m512i);
+	using VEC_SET1_8 = COND_VEC_F(u64_set1_8, _mm_set1_epi8, _mm256_set1_epi8, _mm512_set1_epi8);
+	using VEC_SET1_32 = COND_VEC_F(u64_set1_32, _mm_set1_epi32, _mm256_set1_epi32, _mm512_set1_epi32);
+
+	using VEC_OR = COND_VEC_F(u64_or, _mm_or_si128, _mm256_or_si256, _mm512_or_si512);
+	using VEC_AND = COND_VEC_F(u64_and, _mm_and_si128, _mm256_and_si256, _mm512_and_si512);
+
+	constexpr VEC_TYPE LO_NIBBLE = VEC_SET1_8(0x0f);
+	constexpr VEC_TYPE HI_NIBBLE = VEC_SET1_8(0xf0);
+
+	
+	using VEC_EXTRACT_LOWEST = COND_VEC_F([&] (uint64_t a) -> { return a; }, \
+			_mm_cvtsi128_si64, _mm256_cvtsi128_si64, _mm512_cvtsi128_si64);
+	using VEC_EXTRACT_IDX = COND_VEC_F(uint64_t, _mm_extract_epi64, _mm256_extract_epi64, _mm512_extract_epi64);		       
+	using VEC_STORE_A = COND_VEC_F(uint64_t, _mm_store_si128, _mm256_store_si256, _mm512_store_si512);
+
+	public:
+	// Tiles
 	union {
-		uint64_t b[count];
+		Position2048 p[count];
 		VEC_TYPE v;
 	} tiles;
 
-	// count == 2, count == 4, count == 8.
-#define COND_VEC_F(name1, name2, name3) ((count == 2) ? name1 : ((count == 4) ? name2 : name3))
+	template <int idx>
+	inline Position2048 _extract_entry() const {
+		static_assert(idx >= 0 && idx < count);
 
-	private:
-	template <int idx, std::enable_if_t<vectorize, bool> = true>
-	inline uint64_t _extract_vec_entry() {
-		using extract_lowest = COND_VEC_F(_mm_castsi128_si64, _mm256_castsi128_si64, _mm512_castsi128_si64);
-		using extract_idx = COND_VEC_F(_mm_extract_epi64, _mm256_extract_epi64, _mm512_extract_epi64);
-		       
-			(count == 2) ? _mm_extract_epi64 : ((count == 4) ? _mm256_extract_epi64 : ((count == 8) ? _mm512_castsi128_si64));
+		return Position2048V(tiles.p[idx]);
+		
+		/*if constexpr (idx == 0) return VEC_EXTRACT_LOWEST(tiles.v, idx);
 
-		if constexpr (idx == 0) {
-
-		}
+		return VEC_EXTRACT_IDX(tiles.v, idx);*/
 	}
 
-	public:	
+	inline Position2048 _extract_entry_v(int idx) const {
+		assert(idx >= 0 && idx < count);
+		return Position2048(tiles.p[idx]);
+	}
+
+	template <int idx>
+	inline void _set_entry(Position2048 a) {
+		static_assert(idx >= 0 && idx < count);
+		tiles.p[idx] = a;
+	}
+
+	inline void _set_entry_v(Position2048 v, int idx) {
+		assert(idx >= 0 && idx < count);
+		tiles.p[idx] = v;
+	}
 
 	Position2048V(const Position2048V& p) {
 		if constexpr (vectorize)
 			tiles.v = p.v;
 		else
-			memcpy(tiles.b, p.tiles.b, sizeof(tiles));
+			memcpy(tiles.p, p.tiles.p, sizeof(tiles));
 	}
 
-	Position2048V& operator=(const Position2048V& P) {
+	Position2048V& operator=(const Position2048V& p) {
 		if constexpr (vectorize)
 			tiles.v = p.v;
 		else
-			memcpy(tiles.b, p.tiles.b, sizeof(tiles));
+			memcpy(tiles.p, p.tiles.p, sizeof(tiles));
 		return *this;
-	}
-
-	template <int idx = 0>
-	Position2048V insert_idx_u64(uint64_t a) {
-		static_assert(idx >= 0 && idx < count);
-
-		if constexpr (vectorize) {
-			return EXTRACT_VEC_ENTRY<idx>(tiles.v);
-		} else {
-			b[idx] = a;
-		}
-	}
-
-	template <int idx = 0>
-	uint64_t extract_idx_u64() {
-
 	}
 
 	Position2048V copy() {
 		return Position2048V(tiles.v);
 	}
 
+	inline Position2048V& move_right() {
+		using GATHER_32 = VEC_COND_F(uint64_t, _mm_i32gather_epi32, _mm256_i32gather_epi32, _mm512_i32gather_epi32);
+		if constexpr (vectorize) {
+#ifdef __AVX2__
+			// vpgatherdd available; maybe mask out obvious cases?
+			// consider other algorithms
+
+			if constexpr (count == 2) {
+				__m128i lo_16_msk = _mm_set1_epi32(0xffff);
+				__m128i lo_16 = msk & tiles.v;
+				__m128i hi_16 = _mm_srli_epi32(lo_16, 16);
+
+				__m128i lo_16_l = _mm_i32gather_epi32((const int*) mr_lut_32, lo_16, 1);
+				__m128i hi_16_l = _mm_i32gather_epi32((const int*) mr_lut_32, hi_16, 1);
+
+				tiles = _mm_slli_epi32(hi_16_l, 16) | lo_16_l;
+			} else if constexpr (count == 4) {
+				__m256i lo_16_msk = _mm256_set1_epi32(0xffff);
+				__m256i lo_16 = msk & tiles.v;
+				__m256i hi_16 = _mm256_srli_epi32(lo_16, 16);
+
+				__m256i lo_16_l = _mm256_i32gather_epi32((const int*) mr_lut_32, lo_16, 1);
+				__m256i hi_16_l = _mm256_i32gather_epi32((const int*) mr_lut_32, hi_16, 1);
+
+				tiles = _mm256_slli_epi32(hi_16_l, 16) | lo_16_l;
+			} else {
+				__mmask16 lo_16_msk = 0x5555;
+				__m512i lo_16 = _mm512_maskz_mov_epi16(lo_16_msk, tiles.v);
+				__m512i hi_16 = _mm512_srli_epi32(lo_16, 16);
+
+				__m512i lo_16_l = _mm512_i32gather_epi32(lo_16, (const int*) mr_lut_32, 1);
+				__m512i hi_16_l = _mm512_i32gather_epi32(hi_16, (const int*) mr_lut_32, 1);
+
+				tiles = _mm512_slli_epi32(hi_16_l, 16) | lo_16_l;
+
+			}
+
+			return *this;
+#endif
+		}
+
+		// Slow fallback
+		for (Position2048& p : tiles.p) {
+			p.move_right();
+		}
+
+		return *this;
+	}
+
+	inline Position2048V& perm_self(Perm8x16 perm) {
+		for (Position2048& p : tiles.p) {
+			p.perm_self(perm);
+		}
+	}
 };
