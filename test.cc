@@ -306,10 +306,7 @@ void for_each_position_0_thru_8(L callback, uint64_t step) {
 		// spread bit pairs -> bytes
 		
 		Position2048 p = from_u32(a);
-		if constexpr (!std::is_void_v<decltype(callback(p, 0))>)
-			callback(p, a);
-		else
-			callback(p);
+		callback(p, a);
 	}
 }
 
@@ -346,7 +343,6 @@ uint64_t test_neon_move_perf() {
 
 uint64_t test_avx2_move_perf() {
 	return 0;
-1
 }
 
 uint64_t test_avx512_move_perf() {
@@ -364,7 +360,7 @@ uint64_t test_canonical() {
 		Position2048 q = p.copy().make_canonical();
 
 		expect_eq(p.copy().rotate_90().make_canonical(), q, "canonical", __LINE__);
-		expect_eq(p.copy().rotate_180).make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().rotate_180().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().rotate_270().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().reflect_h().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().reflect_v().make_canonical(), q, "canonical", __LINE__);
@@ -376,17 +372,17 @@ uint64_t test_canonical() {
 }
 
 uint64_t test_canonical_2() {
-	for_each_position_0_thru_8([&] (const Position2048& p) -> {
+	for_each_position_0_thru_8([&] (const Position2048& p, uint64_t) {
 		Position2048 q = p.copy().make_canonical();
 
 		expect_eq(p.copy().rotate_90().make_canonical(), q, "canonical", __LINE__);
-		expect_eq(p.copy().rotate_180).make_canonical(), q, "canonical", __LINE__);
+		expect_eq(p.copy().rotate_180().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().rotate_270().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().reflect_h().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().reflect_v().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().reflect_tr().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().reflect_tl().make_canonical(), q, "canonical", __LINE__);
-	});
+	}, 103);
 }
 
 void perf_move_right() {
@@ -415,6 +411,22 @@ int test_tile_to_repr() {
 
 int main() {
 	fill_random_test_positions();
+
+	Position2048 p {
+0, 0, 0, 0,
+0, 0, 0, 0,
+0, 4, 4, 8,
+8, 0, 0, 0
+	};
+
+	// Position2048 q = p;
+	p.rotate_270();
+
+	puts(p.to_string());
+	puts(p.make_canonical().to_string());
+	
+	//return 0;
+
 
 	add_test(
 		test_perm8x16,

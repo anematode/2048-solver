@@ -220,8 +220,6 @@ struct Position2048 {
 	inline Position2048& move_right() {
 		uint16_t msk = -1;
 
-		printf("%x %llx\n", tiles & msk, mr_lut_16[0x10]);
-
 		tiles = (uint64_t)mr_lut_16[tiles & msk] |
 			((uint64_t)mr_lut_16[(tiles >> 16) & msk] << 16) |
 			((uint64_t)mr_lut_16[(tiles >> 32) & msk] << 32) |
@@ -266,9 +264,10 @@ struct Position2048 {
 		// Dot product
 
 		*com_x = *com_y = 0;
+
 		for (int i = 0; i < 16; ++i) {
-			*com_x += get_tile(i) * com_x_weights[i];
-			*com_y += get_tile(i) * com_y_weights[i];
+			*com_x += (int32_t)get_tile(i) * com_x_weights[i];
+			*com_y += (int32_t)get_tile(i) * com_y_weights[i];
 		}
 	}
 
@@ -290,19 +289,28 @@ struct Position2048 {
 		int com_x, com_y;
 		_compute_center_of_mass(&com_x, &com_y);
 
-		if (com_y < 0)
+		if (com_x < 0) {
 			reflect_h();
-		if (com_x < 0)
+			com_x *= -1;
+		}
+		if (com_y < 0) {
 			reflect_v();
-		if (com_x > com_y)
+			com_y *= -1;
+		}
+		if (com_x > com_y) {
 			reflect_tl();
+			int tmp = com_x;
+			com_x = com_y;
+			com_y = tmp;
+		}
+
+		//printf("%i %i\n", com_x, com_y);
 
 		uint64_t cc = tiles;
 		if (__builtin_expect(com_x == 0, 0)) {
 			if (__builtin_expect(com_y == 0, 0)) {
 				// Try all 8 combinations...
 				// TODO: optimize with SSE
-
 				reflect_v();
 				tiles = std::max(tiles, cc);
 				reflect_h();
@@ -319,6 +327,7 @@ struct Position2048 {
 				tiles = std::max(tiles, cc);
 			} else {
 				reflect_h();
+				
 
 				tiles = std::max(tiles, cc);
 			}
@@ -348,7 +357,6 @@ namespace {
 }
 
 namespace {
-
 	inline uint64_t u64_set1_8 (uint8_t a) {
 		return (uint64_t)a * 0x01010101'01010101ULL;
 	}
@@ -372,20 +380,6 @@ template<int count,
 	std::enable_if_t<(count == 1) || (count == 2) || (count == 4) || (count == 8), bool> = true>
 struct Position2048V {
 
-	static auto choose_vector_type() {
-		if constexpr (count == 1 || !vectorized) {
-			return uint64_t[count]{};
-
-#ifdef __AVX2__
-		} else if constexpr (count == 2) {
-			return _mm_setzero_si128();
-		} else if constexpr (count == 4) {
-			return _mm256_setzero_si256();
-#endif
-
-#ifdef __AVX512F__
-		} else 
-	}
 #ifdef __AVX512F__
 	static constexpr bool vectorize = ((count == 2) || (count == 4) || (count == 8)) && !force_no_vectorize;
 #elif __AVX2__
@@ -394,24 +388,30 @@ struct Position2048V {
 	static constexpr bool vectorize = false;
 #endif
 
-#define COND_VEC_F(_default, name1, name2, name3) (std::conditional_t<vectorize, std::conditional_t<(count == 2), name1, std::conditional_t<(count == 4), name2, name3>, _default>)
-	using VEC_TYPE = COND_VEC_F(uint64_t[count], __m128i, __m256i, __m512i);
-	using VEC_SET1_8 = COND_VEC_F(u64_set1_8, _mm_set1_epi8, _mm256_set1_epi8, _mm512_set1_epi8);
-	using VEC_SET1_32 = COND_VEC_F(u64_set1_32, _mm_set1_epi32, _mm256_set1_epi32, _mm512_set1_epi32);
+	static auto choose_vector_type() {
+		if constexpr (count == 1 || !vectorize) {
+			return std::type_identity<uint64_t[count]>{};
 
-	using VEC_OR = COND_VEC_F(u64_or, _mm_or_si128, _mm256_or_si256, _mm512_or_si512);
-	using VEC_AND = COND_VEC_F(u64_and, _mm_and_si128, _mm256_and_si256, _mm512_and_si512);
+#ifdef __AVX2__
+		} else if constexpr (count == 2) {
+			return std::type_identity<__m128i>{};
+		} else if constexpr (count == 4) {
+			return std::type_identity<__m256i>{};
+#endif
 
-	constexpr VEC_TYPE LO_NIBBLE = VEC_SET1_8(0x0f);
-	constexpr VEC_TYPE HI_NIBBLE = VEC_SET1_8(0xf0);
+#ifdef __AVX512F__
+		} else if constexpr (count == 8) {
+			return std::type_identity<__m512i>{};
+#endif
+		}
 
-	
-	using VEC_EXTRACT_LOWEST = COND_VEC_F([&] (uint64_t a) -> { return a; }, \
-			_mm_cvtsi128_si64, _mm256_cvtsi128_si64, _mm512_cvtsi128_si64);
-	using VEC_EXTRACT_IDX = COND_VEC_F(uint64_t, _mm_extract_epi64, _mm256_extract_epi64, _mm512_extract_epi64);		       
-	using VEC_STORE_A = COND_VEC_F(uint64_t, _mm_store_si128, _mm256_store_si256, _mm512_store_si512);
+		return std::type_identity<uint64_t[count]>{};
+	}
+
+	using VEC_TYPE = typename decltype(choose_vector_type())::type;
 
 	public:
+
 	// Tiles
 	union {
 		Position2048 p[count];
@@ -423,10 +423,6 @@ struct Position2048V {
 		static_assert(idx >= 0 && idx < count);
 
 		return Position2048V(tiles.p[idx]);
-		
-		/*if constexpr (idx == 0) return VEC_EXTRACT_LOWEST(tiles.v, idx);
-
-		return VEC_EXTRACT_IDX(tiles.v, idx);*/
 	}
 
 	inline Position2048 _extract_entry_v(int idx) const {
@@ -465,9 +461,7 @@ struct Position2048V {
 	}
 
 	inline Position2048V& move_right() {
-		using GATHER_32 = VEC_COND_F(uint64_t, _mm_i32gather_epi32, _mm256_i32gather_epi32, _mm512_i32gather_epi32);
 		if constexpr (vectorize) {
-#ifdef __AVX2__
 			// vpgatherdd available; maybe mask out obvious cases?
 			// consider other algorithms
 
@@ -498,11 +492,9 @@ struct Position2048V {
 				__m512i hi_16_l = _mm512_i32gather_epi32(hi_16, (const int*) mr_lut_32, 1);
 
 				tiles = _mm512_slli_epi32(hi_16_l, 16) | lo_16_l;
-
 			}
 
 			return *this;
-#endif
 		}
 
 		// Slow fallback
@@ -513,9 +505,141 @@ struct Position2048V {
 		return *this;
 	}
 
-	inline Position2048V& perm_self(Perm8x16 perm) {
+	inline Position2048V& perm_self(const uint8_t* perm) {
 		for (Position2048& p : tiles.p) {
 			p.perm_self(perm);
 		}
+	}
+
+	/*template <typename U = VEC_TYPE>
+	typename std::enable_if_t<vectorized, VEC_TYPE> _compute_com_xy() {
+		// Compute the center of mass (c_x, c_y) into one vector, where the higher 32-bit value contains
+	}*/
+
+	std::pair<VEC_TYPE, VEC_TYPE> _extract_nibbles() {
+		if constexpr (vectorize) {
+			return { (tiles >> 4) & HI_NIBBLE, tiles & LO_NIBBLE };
+		} else {
+			if constexpr (count == 2) {
+				__m128i msk = _mm_set1_epi8(0xf);	
+				return {
+					_mm_and_si128(_mm_srli_epi32(tiles, 4), msk),
+					_mm_and_si128(tiles, msk)
+				};
+			} else if (count == 4) {
+				__m256i msk = _mm256_set1_epi8(0xf);	
+				return {
+					_mm256_and_si128(_mm256_srli_epi32(tiles, 4), msk),
+					_mm256_and_si128(tiles, msk)
+				};
+			} else {
+				__m512i msk = _mm512_set1_epi8(0xf);	
+				return {
+					_mm512_and_si128(_mm512_srli_epi32(tiles, 4), msk),
+					_mm512_and_si128(tiles, msk)
+				};
+			}
+
+		}
+	}
+
+	inline Position2048V& make_canonical() {
+
+		if constexpr (vectorize) {
+			VEC_TYPE lo_nib, hi_nib;
+
+			std::tie(hi_nib, lo_nib) = _extract_nibbles();
+
+			VEC_TYPE com_x, com_y, com_x_hi_w, com_x_lo_w, com_y_w, nib_sum;
+
+			// First, compute center of mass
+
+			const uint64_t COM_X_HI_W = 0xc1ffc1ff'c1ffc1ff;
+			const uint64_t COM_X_LO_W = 0x013f013f'013f013f;
+			const uint64_t COM_Y_W = 0xc1c1ffff'00003f3f;
+
+			if constexpr (count == 2) {
+				com_x_hi_w = _mm_set1_epi64(COM_X_HI_W);
+				com_x_lo_w = _mm_set1_epi64(COM_X_LO_W);
+				com_y_w = _mm_set1_epi64(COM_Y_W);
+			} else if (count == 4) {
+				com_x_hi_w = _mm256_set1_epi64(COM_X_HI_W);
+				com_x_lo_w = _mm256_set1_epi64(COM_X_LO_W);
+				com_y_w = _mm256_set1_epi64(COM_Y_W);
+			} else {
+				com_x_hi_w = _mm512_set1_epi64(COM_X_HI_W);
+				com_x_lo_w = _mm512_set1_epi64(COM_X_LO_W);
+				com_y_w = _mm512_set1_epi64(COM_Y_W);
+			}
+
+			if constexpr (count == 2)
+				nib_sum = _mm_add_epi16(hi_nib, lo_nib);
+			else if (count == 4)
+				nib_sum = _mm256_add_epi16(hi_nib, lo_nib);
+			else 
+				nib_sum = _mm512_add_epi16(hi_nib, lo_nib);
+
+
+#if defined(__AVX512VNNI__) || defined(__AVXVNNI__)
+			if constexpr (count == 2) {
+				com_x = _mm_dpbusd_epi32(_mm_setzero_si128(), hi_nib, COW_X_HI_W);
+				com_x = _mm_dpbusd_epi32(com_x, lo_nib, COW_X_LO_W);
+				com_y = _mm_dpbusd_epi32(_mm_setzero_si128(), nib_sum, COW_Y_W);
+			} else if constexpr (count == 4) {
+				com_x = _mm256_dpbusd_epi32(_mm256_setzero_si256(), hi_nib, COW_X_HI_W);
+				com_x = _mm256_dpbusd_epi32(com_x, lo_nib, COW_X_LO_W);
+				com_y = _mm256_dpbusd_epi32(_mm256_setzero_si256(), nib_sum, COW_Y_W);
+			} else {
+				com_x = _mm512_dpbusd_epi32(_mm512_setzero_si512(), hi_nib, COW_X_HI_W);
+				com_y = _mm512_dpbusd_epi32(_mm512_setzero_si512(), nib_sum, COW_Y_W);
+				com_x = _mm512_dpbusd_epi32(com_x, lo_nib, COW_X_LO_W);
+			}
+#else  // No VNNI code path
+			if constexpr (count == 2) {	
+				__m128i com_x0 = _mm_maddubs_epi16(hi_nib, COW_X_HI_W);
+				__m128i com_x1 = _mm_maddubs_epi16(lo_nib, COW_X_LO_W);
+
+				__m128i com_y0 = _mm_maddubs_epi16(com_y, COW_Y_W);
+				com_x = _mm_add_epi16(com_x0, com_x1);
+
+				const __m128i all_1 = _mm_set1_epi16(0x1);
+
+				com_x = _mm_madd_epi16(com_x, all_1);
+				com_y = _mm_madd_epi16(com_y, all_1);
+			} else if constexpr (count == 4) {
+				__m256i com_x0 = _mm256_maddubs_epi16(hi_nib, COW_X_HI_W);
+				__m256i com_x1 = _mm256_maddubs_epi16(lo_nib, COW_X_LO_W);
+
+				__m256i com_y0 = _mm256_maddubs_epi16(com_y, COW_Y_W);
+				com_x = _mm256_add_epi16(com_x0, com_x1);
+
+				const __m256i all_1 = _mm256_set1_epi16(0x1);
+
+				com_x = _mm256_madd_epi16(com_x, all_1);
+				com_y = _mm256_madd_epi16(com_y, all_1);
+			} else {
+				__m512i com_x0 = _mm512_maddubs_epi16(hi_nib, COW_X_HI_W);
+				__m512i com_x1 = _mm512_maddubs_epi16(lo_nib, COW_X_LO_W);
+
+				__m512i com_y0 = _mm512_maddubs_epi16(com_y, COW_Y_W);
+				com_x = _mm512_add_epi16(com_x0, com_x1);
+
+				const __m512i all_1 = _mm512_set1_epi16(0x1);
+
+				com_x = _mm512_madd_epi16(com_x, all_1);
+				com_y = _mm512_madd_epi16(com_y, all_1);
+			}
+
+#endif // __AVX512F__
+
+			// We've already separated into nibbles, so let's first flip horizontally. com_x contains two 32-bit chunks that
+
+		} else {
+			for (Position2048& p : tiles.p) {
+				p.make_canonical();
+			}
+		}
+
+		return *this;
 	}
 };
