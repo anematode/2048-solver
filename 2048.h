@@ -1,12 +1,14 @@
 #pragma once
 
 #include <array>
+#include <assert.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <initializer_list>
+#include <tuple>
 #include "dbg.h"
 
 #include <stdexcept>
@@ -42,7 +44,7 @@ inline int tile_to_repr(uint32_t tile, bool validate=true) {  // 4 -> 2, 2 -> 1,
 
 	int k = __builtin_ctzl(tile);
 
-	if (validate && (tile != (1 << k) || !k || k > 17)) {
+	if (validate && (tile != ((uint32_t)1 << k) || !k || k > 17)) {
 		fprintf(stderr, "Invalid tile %d; should be a power of 2 between 2 and 131072 inclusive, or 0\n", tile);
 		abort();
 	}
@@ -86,18 +88,14 @@ static const int8_t com_y_weights[16] = {
 	-63, -63, -63, -63, -1, -1, -1, -1, 1, 1, 1, 1, 63, 63, 63, 63
 };
 
-static const uint64_t LO_NIBBLES = 0x0f0f0f0f'0f0f0f0f;
-static const uint64_t HI_NIBBLES = 0x0f0f0f0f'0f0f0f0f;
+static const uint64_t LO_NIBBLES = ((uint64_t)0x0f0f0f0f'0f0f0f0f);
+static const uint64_t HI_NIBBLES = ((uint64_t)0xf0f0f0f'0f0f0f0f0);
 
 struct Position2048 {
 	// We store a position as 8 bytes, one nibble each. The mapping is 0 -> 0, 1 -> 2, et cetera.
 	// We therefore cannot store 65536 or 131072 tiles. Sad!
 	
 	uint64_t tiles;	
-
-	Position2048() {
-		tiles = 0;
-	}
 
 	inline void set_tile(int idx, uint8_t value) {
 		uint64_t msk = 0xfULL << (4 * idx);
@@ -124,6 +122,10 @@ struct Position2048 {
 		tiles = 0;
 	}
 
+	Position2048() {
+		tiles = 0;
+	}
+
 	Position2048(const Position2048& p) {
 		tiles = p.tiles;
 	}
@@ -132,13 +134,9 @@ struct Position2048 {
 		tiles = a;
 	}
 
-	Position2048& operator=(const Position2048& p) {
+	inline Position2048& operator=(const Position2048& p) {
 		tiles = p.tiles;
 		return *this;
-	}
-
-	~Position2048() {
-
 	}
 
 	inline uint64_t lo_nibbles() const {
@@ -161,19 +159,23 @@ struct Position2048 {
 
 #if USE_VEC && defined(__BMI2__)
 	inline __m128i _to_sse_bytes() const {
-		return _mm_set_epi64(_pext_u64(p.tiles, LOW_NIBBLE), _pext_u64(p.tiles >> 32, LOW_NIBBLE));
+		return _mm_set_epi64x(_pdep_u64(tiles >> 32, LO_NIBBLES), _pdep_u64(tiles, LO_NIBBLES));
 	}
 
 	inline Position2048& _from_sse_bytes(__m128i a) {
-		tiles = _pdep_u64(_mm_cvtsi128_si64(a), LOW_NIBBLE) | ((_pdep_u64(_mm_extract_epi64(a, 1), LOW_NIBBLE)) << 32);
+		tiles = _pext_u64(_mm_cvtsi128_si64(a), LO_NIBBLES) |
+			((_pext_u64(_mm_extract_epi64(a, 1), LO_NIBBLES)) << 32);
+
 		return *this;
 	}
 #endif
 
 	inline Position2048& perm_self(const uint8_t* p) {
 #if USE_VEC && defined(__BMI2__)
-		return _from_sse_bytes(_mm_shuffle_epi8(_to_sse_bytes(),
-					_mm_load_si128((const __m128i*) p)));
+		__m128i b = _to_sse_bytes();
+		__m128i shuf = _mm_shuffle_epi8(b, _mm_load_si128((const __m128i*) p));
+
+		return _from_sse_bytes(shuf);
 #endif
 		uint64_t v = 0;
 		for (int i = 0; i < 16; ++i) {
@@ -285,7 +287,7 @@ struct Position2048 {
 		// 	... horizontally
 		// If c_x = 0 and c_y = 0:
 		// 	take the lexicographic maximum of all rotations (very slow but extremely rare)
-
+	
 		int com_x, com_y;
 		_compute_center_of_mass(&com_x, &com_y);
 
@@ -342,21 +344,6 @@ struct Position2048 {
 };
 
 namespace {
-#ifdef __AVX512F__
-	// slow, probably latency 6 and rtp 2
-	__attribute__((always_inline)) uint64_t _mm512_extract_epi64(__m512i a, const int idx) {
-		__m128i s = _mm256_extracti64x2_epi64(a, idx >> 1);
-
-		return (idx & 0) ? _mm_cvtsi128_si64(a, idx) : _mm_extract_epi64(a, idx);
-	}
-
-	__attribute__((always_inline)) __m512i _mm512_insert_epi64(uint64_t a, const int idx) {			
-		return _mm512_mask_broadcastq_epi64(a, 1 << idx, _mm_cvtsi64_si128(a));
-	}
-#endif
-}
-
-namespace {
 	inline uint64_t u64_set1_8 (uint8_t a) {
 		return (uint64_t)a * 0x01010101'01010101ULL;
 	}
@@ -388,6 +375,17 @@ struct Position2048V {
 	static constexpr bool vectorize = false;
 #endif
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-attributes"
+
+	Position2048V() {
+
+	}
+
+	~Position2048V() {
+
+	}
+
 	static auto choose_vector_type() {
 		if constexpr (count == 1 || !vectorize) {
 			return std::type_identity<uint64_t[count]>{};
@@ -403,19 +401,33 @@ struct Position2048V {
 		} else if constexpr (count == 8) {
 			return std::type_identity<__m512i>{};
 #endif
+		} else {
+			return std::type_identity<uint64_t[count]>{};
 		}
-
-		return std::type_identity<uint64_t[count]>{};
 	}
+#pragma GCC diagnostic pop
 
 	using VEC_TYPE = typename decltype(choose_vector_type())::type;
 
 	public:
 
 	// Tiles
-	union {
+	union TileData {
 		Position2048 p[count];
 		VEC_TYPE v;
+
+		TileData() {
+			if constexpr (vectorize) {
+				if constexpr (count == 2)
+					v = _mm_setzero_si128();
+				else if constexpr (count == 4)
+					v = _mm256_setzero_si256();
+				else
+					v = _mm512_setzero_si512();
+			} else {
+				memset(v, 0, sizeof(v));
+			}
+		}	
 	} tiles;
 
 	template <int idx>
@@ -443,14 +455,14 @@ struct Position2048V {
 
 	Position2048V(const Position2048V& p) {
 		if constexpr (vectorize)
-			tiles.v = p.v;
+			tiles.v = p.tiles.v;
 		else
 			memcpy(tiles.p, p.tiles.p, sizeof(tiles));
 	}
 
 	Position2048V& operator=(const Position2048V& p) {
 		if constexpr (vectorize)
-			tiles.v = p.v;
+			tiles.v = p.tiles.v;
 		else
 			memcpy(tiles.p, p.tiles.p, sizeof(tiles));
 		return *this;
@@ -466,32 +478,25 @@ struct Position2048V {
 			// consider other algorithms
 
 			if constexpr (count == 2) {
-				__m128i lo_16_msk = _mm_set1_epi32(0xffff);
-				__m128i lo_16 = msk & tiles.v;
-				__m128i hi_16 = _mm_srli_epi32(lo_16, 16);
 
-				__m128i lo_16_l = _mm_i32gather_epi32((const int*) mr_lut_32, lo_16, 1);
-				__m128i hi_16_l = _mm_i32gather_epi32((const int*) mr_lut_32, hi_16, 1);
-
-				tiles = _mm_slli_epi32(hi_16_l, 16) | lo_16_l;
 			} else if constexpr (count == 4) {
 				__m256i lo_16_msk = _mm256_set1_epi32(0xffff);
-				__m256i lo_16 = msk & tiles.v;
-				__m256i hi_16 = _mm256_srli_epi32(lo_16, 16);
+				__m256i lo_16 = lo_16_msk & tiles.v;
+				__m256i hi_16 = _mm256_srli_epi32(tiles.v, 16);
 
-				__m256i lo_16_l = _mm256_i32gather_epi32((const int*) mr_lut_32, lo_16, 1);
-				__m256i hi_16_l = _mm256_i32gather_epi32((const int*) mr_lut_32, hi_16, 1);
+				__m256i lo_16_l = _mm256_i32gather_epi32((const int*) mr_lut_32, lo_16, 4);
+				__m256i hi_16_l = _mm256_i32gather_epi32((const int*) mr_lut_32, hi_16, 4);
 
-				tiles = _mm256_slli_epi32(hi_16_l, 16) | lo_16_l;
+				tiles.v = _mm256_slli_epi32(hi_16_l, 16) | lo_16_l;
 			} else {
-				__mmask16 lo_16_msk = 0x5555;
-				__m512i lo_16 = _mm512_maskz_mov_epi16(lo_16_msk, tiles.v);
-				__m512i hi_16 = _mm512_srli_epi32(lo_16, 16);
+				__m512i lo_16_msk = _mm512_set1_epi32(0xffff);
+				__m512i lo_16 = lo_16_msk & tiles.v;
+				__m512i hi_16 = _mm512_srli_epi32(tiles.v, 16);
 
-				__m512i lo_16_l = _mm512_i32gather_epi32(lo_16, (const int*) mr_lut_32, 1);
-				__m512i hi_16_l = _mm512_i32gather_epi32(hi_16, (const int*) mr_lut_32, 1);
+				__m512i lo_16_l = _mm512_i32gather_epi32(lo_16, (const int*) mr_lut_32, 4);
+				__m512i hi_16_l = _mm512_i32gather_epi32(hi_16, (const int*) mr_lut_32, 4);
 
-				tiles = _mm512_slli_epi32(hi_16_l, 16) | lo_16_l;
+				tiles.v = _mm512_slli_epi32(hi_16_l, 16) | lo_16_l;
 			}
 
 			return *this;
@@ -505,20 +510,51 @@ struct Position2048V {
 		return *this;
 	}
 
+	inline Position2048V& load(const Position2048* pp) {
+		if constexpr (vectorize) {
+			if constexpr (count == 2) {
+				tiles.v = _mm_loadu_si128((const __m128i*) pp);
+			} else if constexpr (count == 4) {
+				tiles.v = _mm256_loadu_si256((const __m256i*) pp);
+			} else {
+				tiles.v = _mm512_loadu_si512((const __m512i*) pp);
+			}
+		} else {
+			memcpy(&tiles.p, pp, count * sizeof(Position2048));
+		}
+		return *this;
+	}
+
+	inline void store(const Position2048* p) {
+		if constexpr (vectorize) {
+			if constexpr (count == 2) {
+				_mm_storeu_si128((__m128i*) p, tiles.v);
+			} else if constexpr (count == 4) {
+				_mm256_storeu_si256((__m256i*) p, tiles.v);
+			} else {
+				_mm512_storeu_si512((__m512i*) p, tiles.v);
+			}
+		} else {
+			memcpy(p, &tiles.p, sizeof(tiles));
+		}
+	}
+
 	inline Position2048V& perm_self(const uint8_t* perm) {
 		for (Position2048& p : tiles.p) {
 			p.perm_self(perm);
 		}
+
+		return *this;
 	}
 
 	/*template <typename U = VEC_TYPE>
-	typename std::enable_if_t<vectorized, VEC_TYPE> _compute_com_xy() {
+	typename std::enable_if_t<vectorize, VEC_TYPE> _compute_com_xy() {
 		// Compute the center of mass (c_x, c_y) into one vector, where the higher 32-bit value contains
 	}*/
 
 	std::pair<VEC_TYPE, VEC_TYPE> _extract_nibbles() {
 		if constexpr (vectorize) {
-			return { (tiles >> 4) & HI_NIBBLE, tiles & LO_NIBBLE };
+			return { (tiles >> 4) & HI_NIBBLES, tiles & LO_NIBBLES };
 		} else {
 			if constexpr (count == 2) {
 				__m128i msk = _mm_set1_epi8(0xf);	
@@ -543,6 +579,21 @@ struct Position2048V {
 		}
 	}
 
+	char* to_string() {
+		char* ss = (char*)malloc(count * 200);
+		char* w = ss;
+
+		for (const Position2048& p : tiles.p) {
+			char* ps = p.to_string();
+
+			w = stpcpy(stpcpy(w, ps), "\n");
+
+			free(ps);
+		}
+
+		return ss;
+	}
+
 	inline Position2048V& make_canonical() {
 
 		if constexpr (vectorize) {
@@ -559,13 +610,13 @@ struct Position2048V {
 			const uint64_t COM_Y_W = 0xc1c1ffff'00003f3f;
 
 			if constexpr (count == 2) {
-				com_x_hi_w = _mm_set1_epi64(COM_X_HI_W);
-				com_x_lo_w = _mm_set1_epi64(COM_X_LO_W);
-				com_y_w = _mm_set1_epi64(COM_Y_W);
+				com_x_hi_w = _mm_set1_epi64x(COM_X_HI_W);
+				com_x_lo_w = _mm_set1_epi64x(COM_X_LO_W);
+				com_y_w = _mm_set1_epi64x(COM_Y_W);
 			} else if (count == 4) {
-				com_x_hi_w = _mm256_set1_epi64(COM_X_HI_W);
-				com_x_lo_w = _mm256_set1_epi64(COM_X_LO_W);
-				com_y_w = _mm256_set1_epi64(COM_Y_W);
+				com_x_hi_w = _mm256_set1_epi64x(COM_X_HI_W);
+				com_x_lo_w = _mm256_set1_epi64x(COM_X_LO_W);
+				com_y_w = _mm256_set1_epi64x(COM_Y_W);
 			} else {
 				com_x_hi_w = _mm512_set1_epi64(COM_X_HI_W);
 				com_x_lo_w = _mm512_set1_epi64(COM_X_LO_W);
@@ -582,24 +633,24 @@ struct Position2048V {
 
 #if defined(__AVX512VNNI__) || defined(__AVXVNNI__)
 			if constexpr (count == 2) {
-				com_x = _mm_dpbusd_epi32(_mm_setzero_si128(), hi_nib, COW_X_HI_W);
-				com_x = _mm_dpbusd_epi32(com_x, lo_nib, COW_X_LO_W);
-				com_y = _mm_dpbusd_epi32(_mm_setzero_si128(), nib_sum, COW_Y_W);
+				com_x = _mm_dpbusd_epi32(_mm_setzero_si128(), hi_nib, COM_X_HI_W);
+				com_x = _mm_dpbusd_epi32(com_x, lo_nib, COM_X_LO_W);
+				com_y = _mm_dpbusd_epi32(_mm_setzero_si128(), nib_sum, COM_Y_W);
 			} else if constexpr (count == 4) {
-				com_x = _mm256_dpbusd_epi32(_mm256_setzero_si256(), hi_nib, COW_X_HI_W);
-				com_x = _mm256_dpbusd_epi32(com_x, lo_nib, COW_X_LO_W);
-				com_y = _mm256_dpbusd_epi32(_mm256_setzero_si256(), nib_sum, COW_Y_W);
+				com_x = _mm256_dpbusd_epi32(_mm256_setzero_si256(), hi_nib, COM_X_HI_W);
+				com_x = _mm256_dpbusd_epi32(com_x, lo_nib, COM_X_LO_W);
+				com_y = _mm256_dpbusd_epi32(_mm256_setzero_si256(), nib_sum, COM_Y_W);
 			} else {
-				com_x = _mm512_dpbusd_epi32(_mm512_setzero_si512(), hi_nib, COW_X_HI_W);
-				com_y = _mm512_dpbusd_epi32(_mm512_setzero_si512(), nib_sum, COW_Y_W);
-				com_x = _mm512_dpbusd_epi32(com_x, lo_nib, COW_X_LO_W);
+				com_x = _mm512_dpbusd_epi32(_mm512_setzero_si512(), hi_nib, COM_X_HI_W);
+				com_y = _mm512_dpbusd_epi32(_mm512_setzero_si512(), nib_sum, COM_Y_W);
+				com_x = _mm512_dpbusd_epi32(com_x, lo_nib, COM_X_LO_W);
 			}
 #else  // No VNNI code path
 			if constexpr (count == 2) {	
-				__m128i com_x0 = _mm_maddubs_epi16(hi_nib, COW_X_HI_W);
-				__m128i com_x1 = _mm_maddubs_epi16(lo_nib, COW_X_LO_W);
+				__m128i com_x0 = _mm_maddubs_epi16(hi_nib, COM_X_HI_W);
+				__m128i com_x1 = _mm_maddubs_epi16(lo_nib, COM_X_LO_W);
 
-				__m128i com_y0 = _mm_maddubs_epi16(com_y, COW_Y_W);
+				__m128i com_y0 = _mm_maddubs_epi16(com_y, COM_Y_W);
 				com_x = _mm_add_epi16(com_x0, com_x1);
 
 				const __m128i all_1 = _mm_set1_epi16(0x1);
@@ -607,10 +658,10 @@ struct Position2048V {
 				com_x = _mm_madd_epi16(com_x, all_1);
 				com_y = _mm_madd_epi16(com_y, all_1);
 			} else if constexpr (count == 4) {
-				__m256i com_x0 = _mm256_maddubs_epi16(hi_nib, COW_X_HI_W);
-				__m256i com_x1 = _mm256_maddubs_epi16(lo_nib, COW_X_LO_W);
+				__m256i com_x0 = _mm256_maddubs_epi16(hi_nib, COM_X_HI_W);
+				__m256i com_x1 = _mm256_maddubs_epi16(lo_nib, COM_X_LO_W);
 
-				__m256i com_y0 = _mm256_maddubs_epi16(com_y, COW_Y_W);
+				__m256i com_y0 = _mm256_maddubs_epi16(com_y, COM_Y_W);
 				com_x = _mm256_add_epi16(com_x0, com_x1);
 
 				const __m256i all_1 = _mm256_set1_epi16(0x1);
@@ -618,10 +669,10 @@ struct Position2048V {
 				com_x = _mm256_madd_epi16(com_x, all_1);
 				com_y = _mm256_madd_epi16(com_y, all_1);
 			} else {
-				__m512i com_x0 = _mm512_maddubs_epi16(hi_nib, COW_X_HI_W);
-				__m512i com_x1 = _mm512_maddubs_epi16(lo_nib, COW_X_LO_W);
+				__m512i com_x0 = _mm512_maddubs_epi16(hi_nib, COM_X_HI_W);
+				__m512i com_x1 = _mm512_maddubs_epi16(lo_nib, COM_X_LO_W);
 
-				__m512i com_y0 = _mm512_maddubs_epi16(com_y, COW_Y_W);
+				__m512i com_y0 = _mm512_maddubs_epi16(com_y, COM_Y_W);
 				com_x = _mm512_add_epi16(com_x0, com_x1);
 
 				const __m512i all_1 = _mm512_set1_epi16(0x1);

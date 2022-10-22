@@ -35,10 +35,10 @@ int detail::fill_mr_luts() {
 		collapse_right();
 		collapse_right();
 
-		v32 = tt[0] + (tt[1] << 8) + (tt[2] << 16) + (tt[3] << 24);
+		//v32 = tt[0] + (tt[1] << 8) + (tt[2] << 16) + (tt[3] << 24);
 		v16 = tt[0] + (tt[1] << 4) + (tt[2] << 8) + (tt[3] << 12);
 
-		u32[a] = v32;
+		u32[a] = v16;
 		u16[a] = v16;
 	}
 

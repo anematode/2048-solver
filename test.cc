@@ -372,8 +372,10 @@ uint64_t test_canonical() {
 }
 
 uint64_t test_canonical_2() {
+	uint64_t cases = 0;
 	for_each_position_0_thru_8([&] (const Position2048& p, uint64_t) {
 		Position2048 q = p.copy().make_canonical();
+		cases++;
 
 		expect_eq(p.copy().rotate_90().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().rotate_180().make_canonical(), q, "canonical", __LINE__);
@@ -383,6 +385,45 @@ uint64_t test_canonical_2() {
 		expect_eq(p.copy().reflect_tr().make_canonical(), q, "canonical", __LINE__);
 		expect_eq(p.copy().reflect_tl().make_canonical(), q, "canonical", __LINE__);
 	}, 103);
+
+	return cases;
+}
+
+template <int cnt>
+uint64_t test_vector_move() {
+	Position2048V<cnt> v;
+	uint64_t i = 0;
+	for (; i < sizeof(random_test_positions) / sizeof(Position2048); i += cnt) {
+		v.load(&random_test_positions[i]);
+
+		v.move_right();
+
+		for (int j = 0; j < cnt; ++j) {
+			Position2048 correct = random_test_positions[i + j].copy().move_right();
+			expect_eq(v.tiles.p[j], correct, "vector move", __LINE__);
+		}
+	}
+
+	return i;
+}
+
+template <int cnt>
+uint64_t test_vector_move_perf() {
+	using PV = Position2048V<cnt>;
+	uint64_t cases = 0;
+	PV p;
+
+	for (int i = 0; i < 1000; ++i) {
+		for (uint64_t k = 0; k < sizeof(random_test_positions) / sizeof(Position2048); k += cnt) {
+			p.load(&random_test_positions[k]);
+			p.move_right();
+			cases++;
+
+			prevent_opt(p.tiles.v);
+		}
+	}
+
+	return cases;
 }
 
 void perf_move_right() {
@@ -440,20 +481,46 @@ int main() {
 		"Test whether the moves are performed correctly relative to a few test cases",
 		"test_move"
 		);
-
 	add_test(
 		test_scalar_move_perf,
 		TestType::SCALAR_PERF,
 		"Test the performance of the scalar move function, for random inputs -- how many ns per move?",
 		"test_scalar_move_perf"
 		);
-
 	add_test(
+		test_vector_move_perf<4>,
+		TestType::X86_PERF,
+		"Test speed of vector4 moves",
+		"test_vector4_move_perf"
+		);
+	add_test(
+		test_vector_move<4>,
+		TestType::CORRECTNESS,
+		"Test whether vector4 moves work the same as scalar moves",
+		"test_vector4_move"
+		);
+
+#ifdef __AVX512F__
+	add_test(
+		test_vector_move_perf<8>,
+		TestType::X86_PERF,
+		"Test speed of vector8 moves",
+		"test_vector8_move_perf"
+		);
+	add_test(
+		test_vector_move<8>,
+		TestType::CORRECTNESS,
+		"Test whether vector8 moves work the same as scalar moves",
+		"test_vector8_move"
+		);
+#endif
+
+	/*add_test(
 		test_canonical,
 		TestType::CORRECTNESS,
 		"Test whether canonical positions are consistent",
 		"test_canonical"
-		);
+		);*/
 
 	add_test(
 		test_canonical_2,
