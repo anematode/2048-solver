@@ -1,0 +1,95 @@
+0	0	8	0
+0	0	4	0
+0	0	4	0
+2	0	0	8
+
+0	0	8	0
+0	0	4	0
+0	0	4	0
+2	0	0	8
+
+Running all tests.
+Finished test Test whether the in-place permutations on 16 elements are correct
+Finished test Test whether the moves are performed correctly relative to a few test cases
+Finished test Test the performance of the scalar move function, for random inputs -- how many ns per move?
+Finished test Test speed of vector4 moves
+Finished test Test whether vector4 moves work the same as scalar moves
+Finished test Test whether vector2 permutations work the same as scalar permutations
+Finished test Test whether vector4 permutations work the same as scalar permutations
+Finished test Test vector2 perm perf
+Finished test Test vector4 perm perf
+Finished test Test speed of vector8 moves
+Finished test Test whether vector8 moves work the same as scalar moves
+Finished test Test whether vector8 permutations work the same as scalar permutations
+Finished test Test vector8 perm perf
+Finished test Test whether vector canonicals work the same as scalar
+Test: Test whether the in-place permutations on 16 elements are correct
+Result: 
+	ns per subtest: 1.709E+03
+Description: test_perm8x16
+
+Test: Test whether the moves are performed correctly relative to a few test cases
+Result: 
+	ns per subtest: 1.178E+03
+Description: test_move
+
+Test: Test the performance of the scalar move function, for random inputs -- how many ns per move?
+Result: 
+	ns per subtest: 1.554E+00
+Description: test_scalar_move_perf
+
+Test: Test speed of vector4 moves
+Result: 
+	ns per subtest: 3.738E+00
+Description: test_vector4_move_perf
+
+Test: Test whether vector4 moves work the same as scalar moves
+Result: 
+	ns per subtest: 2.098E+00
+Description: test_vector4_move
+
+Test: Test whether vector2 permutations work the same as scalar permutations
+Result: 
+	ns per subtest: 1.034E+01
+Description: test_vector2_permutation
+
+Test: Test whether vector4 permutations work the same as scalar permutations
+Result: 
+	ns per subtest: 8.530E+00
+Description: test_vector4_permutation
+
+Test: Test vector2 perm perf
+Result: 
+	ns per subtest: 5.977E-01
+Description: test_vector2_perm_perf
+
+Test: Test vector4 perm perf
+Result: 
+	ns per subtest: 6.078E-01
+Description: test_vector4_perm_perf
+
+Test: Test speed of vector8 moves
+Result: 
+	ns per subtest: 1.077E+01
+Description: test_vector8_move_perf
+
+Test: Test whether vector8 moves work the same as scalar moves
+Result: 
+	ns per subtest: 2.417E+00
+Description: test_vector8_move
+
+Test: Test whether vector8 permutations work the same as scalar permutations
+Result: 
+	ns per subtest: 2.370E+01
+Description: test_vector8_permutation
+
+Test: Test vector8 perm perf
+Result: 
+	ns per subtest: 1.645E+00
+Description: test_vector8_perm_perf
+
+Test: Test whether vector canonicals work the same as scalar
+Result: 
+	ns per subtest: 4.200E+01
+Description: test_vector4_canonical
+
