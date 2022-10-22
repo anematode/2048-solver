@@ -597,6 +597,7 @@ struct Position2048V {
 	}
 
 #define ROL_16 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14
+#define ROL_16_R 14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1
 #define ROL_32 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13
 #define ROL_64 4, 5, 6, 7, 0, 1, 2, 3, 12, 13, 14, 15, 8, 9, 10, 11
 #define FLIP_ROWS 6, 7, 4, 5, 2, 3, 0, 1, 14, 15, 12, 13, 10, 11, 8, 9
@@ -626,12 +627,12 @@ struct Position2048V {
 				com_x_hi_w = _mm256_set1_epi64x(COM_X_HI_W);
 				com_x_lo_w = _mm256_set1_epi64x(COM_X_LO_W);
 				com_y_w = _mm256_set1_epi64x(COM_Y_W);
-				lo_nib_sl1 = _mm_slli_epi32(lo_nib, 4);
+				lo_nib_sl1 = _mm256_slli_epi32(lo_nib, 4);
 			} else {
 				com_x_hi_w = _mm512_set1_epi64(COM_X_HI_W);
 				com_x_lo_w = _mm512_set1_epi64(COM_X_LO_W);
 				com_y_w = _mm512_set1_epi64(COM_Y_W);
-				lo_nib_sl1 = _mm_slli_epi32(lo_nib, 4);
+				lo_nib_sl1 = _mm512_slli_epi32(lo_nib, 4);
 			}
 
 			if constexpr (count == 2)
@@ -708,7 +709,7 @@ struct Position2048V {
 				__m256i rol_16 = _mm256_setr_epi8(ROL_16, ROL_16);
 				flipped_x = _mm256_shuffle_epi8(rol_nib, rol_16);
 			} else {
-				__m512i rol_16 = _mm512_setr_epi8(ROL_16, ROL_16, ROL_16, ROL_16);
+				__m512i rol_16 = _mm512_set_epi8(ROL_16_R, ROL_16_R, ROL_16_R, ROL_16);
 				flipped_x = _mm512_shuffle_epi8(rol_nib, rol_16);
 			}
 
