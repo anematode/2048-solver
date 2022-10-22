@@ -428,7 +428,6 @@ uint64_t test_vector_move_perf() {
 
 template <int cnt>
 uint64_t test_vector_canonical() {
-	return 1;
 	using PV = Position2048V<cnt>;
 
 	PV v;
@@ -491,6 +490,26 @@ uint64_t test_vector_perm_perf() {
 
 	return cases;
 }
+
+template <int cnt>
+uint64_t test_vector_canonical_perf() {
+	using PV = Position2048V<cnt>;
+	uint64_t cases = 0;
+	PV p;
+
+	for (int i = 0; i < 10000; ++i) {
+		for (uint64_t k = 0; k < sizeof(random_test_positions) / sizeof(Position2048); k += cnt) {
+			p.load(&random_test_positions[k]);
+			p.make_canonical();
+
+			cases++;
+
+			prevent_opt(p.tiles.v);
+		}
+	}
+
+	return cases;
+}
 void perf_move_right() {
 
 }
@@ -519,10 +538,17 @@ int main() {
 	fill_random_test_positions();
 
 	Position2048 p {
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		2, 2, 4, 4,
+
+
+		/*
 2, 0, 0, 0,
 0, 0, 0, 0,
 0, 4, 4, 8,
-8, 0, 0, 0
+8, 0, 0, 0*/
 	};
 
 
@@ -534,9 +560,6 @@ int main() {
 
 	puts(pv.extract_entry<0>().to_string());
 	puts(p.to_string());
-
-	return 0;
-
 
 	add_test(
 		test_perm8x16,
@@ -620,13 +643,20 @@ int main() {
 		);
 #endif
 
+	/*
 	add_test(
 		test_vector_canonical<4>,
 		TestType::CORRECTNESS,
 		"Test whether vector canonicals work the same as scalar",
 		"test_vector4_canonical"
-		);
+		);*/
 
+	add_test(
+		test_vector_canonical_perf<4>,
+		TestType::X86_PERF,
+		"Test speed of vector4 canonical",
+		"test_vector4_canonical_perf"
+		);
 	/*add_test(
 		test_canonical,
 		TestType::CORRECTNESS,

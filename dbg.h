@@ -128,9 +128,19 @@ print_vec(const VT v) {
 	}
 }
 
+
 template <typename T, std::enable_if_t<is_int_vec<T>, bool> = true>
 inline void _prevent_opt(T a) {
-	asm volatile("" :: "g"(a) : "memory");
+	if constexpr (std::is_same_v<T, __m256i>) {
+		volatile uint64_t m = _mm_cvtsi128_si64(_mm256_castsi256_si128(a));
+	} else if constexpr (std::is_same_v<T, __m128i>) {
+		volatile uint64_t m = _mm_cvtsi128_si64(a);
+	} else {
+		volatile uint64_t m = _mm_cvtsi128_si64(_mm512_castsi512_si128(a));
+	}
+
+	asm volatile("" :: "X"(a) : "memory");
+
 }
 
 template <>

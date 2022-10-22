@@ -73,6 +73,7 @@ namespace Perm8x16 {
 	PERM(broadcast_col1) = { 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12 }; // take first col and broadcast it right
 	PERM(compress_offsets) = { 0, 0, 0, 0, 16, 16, 16, 16, 32, 32, 32, 48, 48, 48, 48 };
 
+	PERM_64(identity_64) = 0xfedcba9876543210;
 	PERM_64(rotate_90_64) = 0xc840d951ea62fb73;
 	PERM_64(rotate_180_64) = 0x0123456789abcdef;
 	PERM_64(rotate_270_64) = 0x37bf26ae159d048c;
@@ -306,8 +307,6 @@ struct Position2048 {
 	
 		int com_x, com_y;
 		_compute_center_of_mass(&com_x, &com_y);
-
-		printf("Correct com: %i %i\n", com_x, com_y);
 
 		if (com_x < 0) {
 			reflect_h();
@@ -674,29 +673,14 @@ struct Position2048V {
 
 	inline Position2048V& make_canonical() {
 		if constexpr (vectorize) {
-			VEC_TYPE lo_nib, hi_nib, lo_nib_xchg, hi_nib_xchg;
+			VEC_TYPE lo_nib, hi_nib, com_xy_diff;
 
 			std::tie(hi_nib, lo_nib) = _extract_nibbles(tiles.v);
-
-			if constexpr (count == 2) {
-				__m128i rol_c = _mm_set_epi8(ROL_64_R);
-				lo_nib_xchg = _mm_shuffle_epi8(lo_nib, rol_c);
-				hi_nib_xchg = _mm_shuffle_epi8(hi_nib, rol_c);
-			} else if constexpr (count == 4) {
-				__m256i rol_c = _mm256_set_epi8(ROL_64_R, ROL_64_R);
-				lo_nib_xchg = _mm256_shuffle_epi8(lo_nib, rol_c);
-				hi_nib_xchg = _mm256_shuffle_epi8(hi_nib, rol_c);
-			} else {
-				__m512i rol_c = _mm512_set_epi8(ROL_64_R, ROL_64_R, ROL_64_R, ROL_64_R);
-				lo_nib_xchg = _mm512_shuffle_epi8(lo_nib, rol_c);
-				hi_nib_xchg = _mm512_shuffle_epi8(hi_nib, rol_c);
-			}
-
-			VEC_TYPE com_x, com_y, com_x_hi_w, com_x_lo_w, com_y_w, nib_sum;
+			VEC_TYPE com_x, com_y, com_x_hi_w, com_x_lo_w, com_y_w, nib_sum, perm_idx, com_all, perms;
 
 			// First, compute center of mass
-			const uint64_t COM_X_HI_W = 0x3f013f01'3f013f01;//0xc1ffc1ff'c1ffc1ff;
-			const uint64_t COM_X_LO_W = 0xffc1ffc1'ffc1ffc1;// 0x013f013f'013f013f;
+			const uint64_t COM_X_HI_W = 0x3fff3fff3fff3fff; //0xc101c101'c101c101;
+			const uint64_t COM_X_LO_W = 0x01c101c101c101c1;//0xff3fff3f'ff3fff3f;
 			const uint64_t COM_Y_W = 0x3f3f0101'ffffc1c1;
 
 			if constexpr (count == 2) {
@@ -722,23 +706,106 @@ struct Position2048V {
 
 
 #if defined(__AVX512VNNI__) || defined(__AVXVNNI__)
+			// Strategy: compute 48-bits in each 64-bit element, where the high 16 bits is com_x, the middle
+			// is com_y, and the last is com_xy. Then, perform a table lookup for the correct permutation to
+			// use, all while performing a horizontal 16-bit unsigned minimum. Check whether any of the
+			// minimums are 0 (in which case a slow fallback is needed). Otherwise, just apply the
+			// permutations.
+
+			__m256i perm_lut1 = 
+				_mm256_set_epi64x(Perm8x16::reflect_tr_64, Perm8x16::rotate_270_64,
+						Perm8x16::identity_64, Perm8x16::identity_64);
+			__m256i perm_lut2 =
+				_mm256_set_epi64x(Perm8x16::rotate_180_64, Perm8x16::reflect_v_64,
+						Perm8x16::reflect_tr_64, Perm8x16::reflect_tl_64);
+
 			if constexpr (count == 2) {
 				com_x = _mm_dpbusd_epi32(_mm_setzero_si128(), hi_nib, com_x_hi_w);
 				com_x = _mm_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
 				com_y = _mm_dpbusd_epi32(_mm_setzero_si128(), nib_sum, com_y_w);
+
+				com_y = _mm_maskz_add_epi16(0b00010001, _mm_srli_epi64(com_y, 32), com_y); // com_y in low 16 only
+				com_x = _mm_maskz_add_epi16(0b00010001, _mm_rol_epi64(com_x, 32), com_x); // com_x in high 16 and low 16 only
+
+				com_xy_diff = _mm_maskz_sub_epi16(0b00010001, com_y, com_x); // diff_xy in low 32 only
+				com_y = _mm_slli_epi32(com_y, 16);   // com_y in middle 16 only
+
+				com_all = com_x | com_y | com_xy_diff;  // single ternary op
+				perm_idx = _mm_popcnt_epi64(com_all & _mm_set1_epi64x(0x0000'000f'0003'0001));
+				
+				perms = _mm_castsi256_si128(_mm256_permutex2var_epi64(perm_lut1, _mm256_castsi128_si256(perm_idx), perm_lut2));
 			} else if constexpr (count == 4) {
 				com_x = _mm256_dpbusd_epi32(_mm256_setzero_si256(), hi_nib, com_x_hi_w);
 				com_x = _mm256_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
 				com_y = _mm256_dpbusd_epi32(_mm256_setzero_si256(), nib_sum, com_y_w);
+
+				com_y = _mm256_maskz_add_epi16(0x1111, _mm256_srli_epi64(com_y, 32), com_y); // com_y in low 16 only
+				com_x = _mm256_maskz_add_epi16(0x1111, _mm256_rol_epi64(com_x, 32), com_x); // com_x in low 16 only
+
+				com_xy_diff = _mm256_slli_epi64(_mm256_sub_epi16(
+							_mm256_abs_epi16(com_x), _mm256_abs_epi16(com_y)
+							), 32); // diff_xy in high 16 only
+				com_y = _mm256_slli_epi32(com_y, 16);   // com_y in middle 16 only
+
+				com_all = com_x | com_y | com_xy_diff;  // single ternary op		
+
+				__mmask16 negative = _mm256_cmpgt_epi16_mask(_mm256_setzero_si256(), com_all); 
+				__m256i idxs = _mm256_popcnt_epi64(_mm256_maskz_mov_epi16(negative, _mm256_set1_epi64x(0x000f00030001)));
+
+				perms = _mm256_permutex2var_epi64(perm_lut1, idxs, perm_lut2);
+				tiles.v = shuffle_nibbles_v(tiles.v, perms);
+
+				__mmask16 cmp0 = _mm256_cmpeq_epi16_mask(com_all, _mm256_setzero_si256());
+
+				if (__builtin_expect(!cmp0, 1)) return *this;
+
+				// Slow fallback, fairly rare wiht realistic positions
+				const __m256i zero = _mm256_setzero_si256();
+
+				__mmask16 cmp_xy0 = _mm256_cmpeq_epi64_mask(com_xy_diff, zero);
+
+				__mmask16 cmp_x0 = _mm256_cmpeq_epi64_mask(com_x, zero);
+				__mmask16 cmp_y0 = _mm256_cmpeq_epi64_mask(com_y, zero);
+
+				if (cmp_x0) {
+					__m256i flip_x = shuffle_nibbles_v_same(tiles.v, Perm8x16::reflect_h_64);
+					tiles.v = _mm256_mask_max_epi64(tiles.v, cmp_x0, tiles.v, flip_x);
+				}
+
+				if (cmp_y0) {
+					__m256i flip_y = shuffle_nibbles_v_same(tiles.v, Perm8x16::reflect_v_64);
+					tiles.v = _mm256_mask_max_epi64(tiles.v, cmp_y0, tiles.v, flip_y);
+				}
+
+				__mmask16 worst = cmp_xy0 & cmp_x0;
+
+				if (worst) { [[unlikely]]
+					// Very slow fallback
+				#define ACCUM(shuf) kk = shuffle_nibbles_v_same(tiles.v, shuf); \
+					running = _mm256_max_epu64(kk, running);	
+					__m256i running = tiles.v, kk;
+
+					ACCUM(Perm8x16::rotate_90_64)
+					ACCUM(Perm8x16::rotate_180_64)
+					ACCUM(Perm8x16::rotate_270_64)
+					ACCUM(Perm8x16::reflect_h_64)
+					ACCUM(Perm8x16::reflect_v_64)
+					ACCUM(Perm8x16::reflect_tr_64)
+					ACCUM(Perm8x16::reflect_tl_64)
+
+					tiles.v = _mm256_mask_blend_epi64(worst, tiles.v, running);
+				}
 			} else {
 				com_x = _mm512_dpbusd_epi32(_mm512_setzero_si512(), hi_nib, com_x_hi_w);
 				com_y = _mm512_dpbusd_epi32(_mm512_setzero_si512(), nib_sum, com_y_w);
 				com_x = _mm512_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
-			}
 
-			puts("Hi");
-			print_vec<int32_t>(com_x);
-			print_vec<int32_t>(com_y);
+				// Automatically broadcasts into each 32-bit chunk, which we will find useful
+				com_y = _mm512_add_epi32(_mm512_rol_epi64(com_y, 32), com_y);
+				com_x = _mm512_add_epi32(_mm512_rol_epi64(com_x, 32), com_x);
+
+				com_xy_diff = _mm512_sub_epi32(com_y, com_x);
+			}
 #else  // No VNNI code path (BROKEN)
 #error "no"
 			if constexpr (count == 2) {	
