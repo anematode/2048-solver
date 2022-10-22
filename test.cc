@@ -529,14 +529,13 @@ int main() {
 	Position2048V<4> pv;
 	pv.set_entry<0>(p);
 
-	/*p.make_canonical();
-	pv.make_canonical();*/
-
-	pv.rotate_90();
-	p.rotate_90();
+	p.make_canonical();
+	pv.make_canonical();
 
 	puts(pv.extract_entry<0>().to_string());
 	puts(p.to_string());
+
+	return 0;
 
 
 	add_test(

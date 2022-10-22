@@ -307,7 +307,7 @@ struct Position2048 {
 		int com_x, com_y;
 		_compute_center_of_mass(&com_x, &com_y);
 
-		//printf("Correct com: %i %i\n", com_x, com_y);
+		printf("Correct com: %i %i\n", com_x, com_y);
 
 		if (com_x < 0) {
 			reflect_h();
@@ -668,41 +668,49 @@ struct Position2048V {
 #define ROL_16 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14
 #define ROL_16_R 14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1
 #define ROL_32 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13
-#define ROL_64 4, 5, 6, 7, 0, 1, 2, 3, 12, 13, 14, 15, 8, 9, 10, 11
+#define ROL_64_R 11, 10, 9, 8, 15, 14, 13, 12, 3, 2, 1, 0, 7, 6, 5, 4
 #define FLIP_ROWS 6, 7, 4, 5, 2, 3, 0, 1, 14, 15, 12, 13, 10, 11, 8, 9
 #define FLIP_ROWS_R 9, 8, 11, 10, 13, 12, 15, 14, 1, 0, 3, 2, 5, 4, 7, 6
 
 	inline Position2048V& make_canonical() {
-
 		if constexpr (vectorize) {
-			VEC_TYPE lo_nib, hi_nib, lo_nib_sl1;
+			VEC_TYPE lo_nib, hi_nib, lo_nib_xchg, hi_nib_xchg;
 
 			std::tie(hi_nib, lo_nib) = _extract_nibbles(tiles.v);
+
+			if constexpr (count == 2) {
+				__m128i rol_c = _mm_set_epi8(ROL_64_R);
+				lo_nib_xchg = _mm_shuffle_epi8(lo_nib, rol_c);
+				hi_nib_xchg = _mm_shuffle_epi8(hi_nib, rol_c);
+			} else if constexpr (count == 4) {
+				__m256i rol_c = _mm256_set_epi8(ROL_64_R, ROL_64_R);
+				lo_nib_xchg = _mm256_shuffle_epi8(lo_nib, rol_c);
+				hi_nib_xchg = _mm256_shuffle_epi8(hi_nib, rol_c);
+			} else {
+				__m512i rol_c = _mm512_set_epi8(ROL_64_R, ROL_64_R, ROL_64_R, ROL_64_R);
+				lo_nib_xchg = _mm512_shuffle_epi8(lo_nib, rol_c);
+				hi_nib_xchg = _mm512_shuffle_epi8(hi_nib, rol_c);
+			}
 
 			VEC_TYPE com_x, com_y, com_x_hi_w, com_x_lo_w, com_y_w, nib_sum;
 
 			// First, compute center of mass
-
 			const uint64_t COM_X_HI_W = 0x3f013f01'3f013f01;//0xc1ffc1ff'c1ffc1ff;
 			const uint64_t COM_X_LO_W = 0xffc1ffc1'ffc1ffc1;// 0x013f013f'013f013f;
 			const uint64_t COM_Y_W = 0x3f3f0101'ffffc1c1;
-				//0xc1c1ffff'00003f3f;
 
 			if constexpr (count == 2) {
 				com_x_hi_w = _mm_set1_epi64x(COM_X_HI_W);
 				com_x_lo_w = _mm_set1_epi64x(COM_X_LO_W);
 				com_y_w = _mm_set1_epi64x(COM_Y_W);
-				lo_nib_sl1 = _mm_slli_epi32(lo_nib, 4);
 			} else if constexpr (count == 4) {
 				com_x_hi_w = _mm256_set1_epi64x(COM_X_HI_W);
 				com_x_lo_w = _mm256_set1_epi64x(COM_X_LO_W);
 				com_y_w = _mm256_set1_epi64x(COM_Y_W);
-				lo_nib_sl1 = _mm256_slli_epi32(lo_nib, 4);
 			} else {
 				com_x_hi_w = _mm512_set1_epi64(COM_X_HI_W);
 				com_x_lo_w = _mm512_set1_epi64(COM_X_LO_W);
 				com_y_w = _mm512_set1_epi64(COM_Y_W);
-				lo_nib_sl1 = _mm512_slli_epi32(lo_nib, 4);
 			}
 
 			if constexpr (count == 2)
@@ -731,7 +739,8 @@ struct Position2048V {
 			puts("Hi");
 			print_vec<int32_t>(com_x);
 			print_vec<int32_t>(com_y);
-#else  // No VNNI code path
+#else  // No VNNI code path (BROKEN)
+#error "no"
 			if constexpr (count == 2) {	
 				__m128i com_x0 = _mm_maddubs_epi16(hi_nib, COM_X_HI_W);
 				__m128i com_x1 = _mm_maddubs_epi16(lo_nib, COM_X_LO_W);
@@ -767,52 +776,8 @@ struct Position2048V {
 				com_y = _mm512_madd_epi16(com_y, all_1);
 			}
 #endif // __AVX512F__
-
-			VEC_TYPE flipped_x, rol_nib = lo_nib_sl1 | hi_nib;
-
-			// Flip the board horizontally into flipped_x
-			if constexpr (count == 2) {
-				__m128i rol_16 = _mm_setr_epi8(ROL_16);
-				flipped_x = _mm_shuffle_epi8(rol_nib, rol_16);
-			} else if constexpr (count == 4) {
-				// we have hi nibs and low nibs already.
-				__m256i rol_16 = _mm256_setr_epi8(ROL_16, ROL_16);
-				flipped_x = _mm256_shuffle_epi8(rol_nib, rol_16);
-			} else {
-				__m512i rol_16 = _mm512_set_epi8(ROL_16_R, ROL_16_R, ROL_16_R, ROL_16);
-				flipped_x = _mm512_shuffle_epi8(rol_nib, rol_16);
-			}
-
-			// Flip the board vertically into flipped_y
-
-			VEC_TYPE flipped_y;
-
-			if constexpr (count == 2) {
-				flipped_y = _mm_shuffle_epi8(flipped_x, _mm_setr_epi8(FLIP_ROWS));
-			} else if constexpr (count == 4) {
-				flipped_y = _mm256_shuffle_epi8(flipped_x, _mm256_setr_epi8(FLIP_ROWS, FLIP_ROWS));
-			} else {
-				flipped_y = _mm512_shuffle_epi8(flipped_x, _mm512_set_epi8(FLIP_ROWS_R, FLIP_ROWS_R, FLIP_ROWS_R, FLIP_ROWS_R));
-			}
-
-			// Flip diagonally (trickier)
-			// 0  1  2  3       0  4  8 12
-			// 4  5  6  7  -->  1  5  9 13
-			// 8  9 10 11       2  6 10 14
-			//12 13 14 15       3  7 11 15
-			// Conclusion: shuffle 
-		
-			VEC_TYPE flipped_tl;
-			
-			if constexpr (count == 2) {
-				flipped_tl = shuffle_nibbles_v(flipped_y, _mm_set1_epi64x(Perm8x16::reflect_tl_64));
-			} else if constexpr (count == 4) {
-				flipped_tl = shuffle_nibbles_v(flipped_y, _mm256_set1_epi64x(Perm8x16::reflect_tl_64));
-			} else {
-				flipped_tl = shuffle_nibbles_v(flipped_y, _mm512_set1_epi64(Perm8x16::reflect_tl_64));
-			}
-
-			tiles.v = flipped_tl;
+			// Our method is as follows: look up the correct nibble shuffle based on the comparisons
+			// com_x <=> 0, com_y <=> 0, com_x <=> com_y.
 		} else {
 			for (Position2048& p : tiles.p) {
 				p.make_canonical();
