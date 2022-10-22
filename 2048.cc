@@ -9,7 +9,6 @@ int detail::fill_mr_luts() {
 	uint16_t* u16 = mr_lut_16;
 
 	for (uint32_t a = 0; a < (1 << 16); ++a) {
-		uint32_t v32 = 0;
 		uint16_t v16 = 0;
 
 		uint8_t tt[4] = { (uint8_t)(a & 0xf), (uint8_t)((a & 0xf0) >> 4), (uint8_t)((a & 0xf00) >> 8), (uint8_t)((a & 0xf000) >> 12)  };

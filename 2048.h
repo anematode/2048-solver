@@ -9,7 +9,9 @@
 #include <signal.h>
 #include <initializer_list>
 #include <tuple>
+
 #include "dbg.h"
+#include "shuffle.h"
 
 #include <stdexcept>
 
@@ -58,9 +60,10 @@ inline int repr_to_tile(uint32_t repr) {
 
 namespace Perm8x16 {
 #define PERM(name) constexpr uint8_t name alignas(16) [16]
+#define PERM_64(name) constexpr uint64_t name
 
 	PERM(rotate_90) = { 3, 7, 11, 15, 2, 6, 10, 14, 1, 5, 9, 13, 0, 4, 8, 12 };	
-	PERM(rotate_180) = { 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 };
+	PERM(rotate_180) = { 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0 };
 	PERM(rotate_270) = { 12, 8, 4, 0, 13, 9, 5, 1, 14, 10, 6, 2, 15, 11, 7, 3 };
 	PERM(reflect_h) = { 3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12 };
 	PERM(reflect_v) = { 12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3 };
@@ -69,6 +72,14 @@ namespace Perm8x16 {
 
 	PERM(broadcast_col1) = { 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12 }; // take first col and broadcast it right
 	PERM(compress_offsets) = { 0, 0, 0, 0, 16, 16, 16, 16, 32, 32, 32, 48, 48, 48, 48 };
+
+	PERM_64(rotate_90_64) = 0xc840d951ea62fb73;
+	PERM_64(rotate_180_64) = 0x0123456789abcdef;
+	PERM_64(rotate_270_64) = 0x37bf26ae159d048c;
+	PERM_64(reflect_h_64) = 0xcdef89ab45670123;
+	PERM_64(reflect_v_64) = 0x32107654ba98fedc;
+	PERM_64(reflect_tl_64) = 0xfb73ea62d951c840;
+	PERM_64(reflect_tr_64) = 0x048c159d26ae37bf;
 #undef PERM
 };
 
@@ -170,7 +181,7 @@ struct Position2048 {
 	}
 #endif
 
-	inline Position2048& perm_self(const uint8_t* p) {
+	inline Position2048& perm_self_lut128(const uint8_t* p) {
 #if USE_VEC && defined(__BMI2__)
 		__m128i b = _to_sse_bytes();
 		__m128i shuf = _mm_shuffle_epi8(b, _mm_load_si128((const __m128i*) p));
@@ -188,35 +199,40 @@ struct Position2048 {
 		return *this;
 	}
 
+	inline Position2048& perm_self(uint64_t nibble_shuffle) {
+		tiles = shuffle_nibbles(tiles, nibble_shuffle);
+		return *this;
+	}
+
 	// Transforms in place. Rotations are counterclockwise by convention. Use copy() first if you don't want to modify the original.
 	inline Position2048& rotate_90() {
-		return perm_self(Perm8x16::rotate_90);
+		return perm_self_lut128(Perm8x16::rotate_90);
 	}
 
 	inline Position2048& rotate_180() {
-		return perm_self(Perm8x16::rotate_180);
+		return perm_self_lut128(Perm8x16::rotate_180);
 	}
 
 	inline Position2048& rotate_270() {	
-		return perm_self(Perm8x16::rotate_270);
+		return perm_self_lut128(Perm8x16::rotate_270);
 	}
 
 	// Across y axis
 	inline Position2048& reflect_h() {
-		return perm_self(Perm8x16::reflect_h);
+		return perm_self_lut128(Perm8x16::reflect_h);
 	}
 
 	// Across x axis
 	inline Position2048& reflect_v() {
-		return perm_self(Perm8x16::reflect_v);
+		return perm_self_lut128(Perm8x16::reflect_v);
 	}
 
 	inline Position2048& reflect_tr() {
-		return perm_self(Perm8x16::reflect_tr);
+		return perm_self_lut128(Perm8x16::reflect_tr);
 	}
 
 	inline Position2048& reflect_tl() {
-		return perm_self(Perm8x16::reflect_tl);
+		return perm_self_lut128(Perm8x16::reflect_tl);
 	}
 
 	inline Position2048& move_right() {
@@ -291,7 +307,7 @@ struct Position2048 {
 		int com_x, com_y;
 		_compute_center_of_mass(&com_x, &com_y);
 
-		printf("Correct com: %i %i\n", com_x, com_y);
+		//printf("Correct com: %i %i\n", com_x, com_y);
 
 		if (com_x < 0) {
 			reflect_h();
@@ -432,11 +448,19 @@ struct Position2048V {
 		}	
 	} tiles;
 
+	Position2048V(VEC_TYPE a) {
+		if constexpr (vectorize) {
+			tiles.v = a;
+		} else {
+			memcpy(tiles.p, a, sizeof(tiles.p));
+		}
+	}
+
 	template <int idx>
 	inline Position2048 extract_entry() const {
 		static_assert(idx >= 0 && idx < count);
 
-		return Position2048V(tiles.p[idx]);
+		return Position2048{tiles.p[idx]};
 	}
 
 	inline Position2048 extract_entry_v(int idx) const {
@@ -541,11 +565,56 @@ struct Position2048V {
 		}
 	}
 
-	inline Position2048V& perm_self(const uint8_t* perm) {
+	inline Position2048V& perm_self_lut128(const uint8_t* perm) {
 		for (Position2048& p : tiles.p) {
-			p.perm_self(perm);
+			p.perm_self_lut128(perm);
 		}
 
+		return *this;
+	}
+
+	inline Position2048V& perm_self(uint64_t nibble_shuffle) {
+		if constexpr (vectorize) {
+			tiles.v = shuffle_nibbles_v_same(tiles.v, nibble_shuffle);
+		} else {
+			shuffle_nibbles_arr_same((uint64_t*) tiles.p, nibble_shuffle, (uint64_t*) tiles.p, count);
+		}
+
+		return *this;
+	}
+
+	inline Position2048V& rotate_90() {
+		perm_self(Perm8x16::rotate_90_64);
+		return *this;
+	}
+
+	inline Position2048V& rotate_180() {
+		perm_self(Perm8x16::rotate_180_64);
+		return *this;
+	}
+
+	inline Position2048V& rotate_270() {
+		perm_self(Perm8x16::rotate_270_64);
+		return *this;
+	}
+
+	inline Position2048V& reflect_v() {
+		perm_self(Perm8x16::reflect_v_64);
+		return *this;
+	}
+
+	inline Position2048V& reflect_h() {
+		perm_self(Perm8x16::reflect_h_64);
+		return *this;
+	}
+
+	inline Position2048V& reflect_tl() {
+		perm_self(Perm8x16::reflect_tl_64);
+		return *this;
+	}
+
+	inline Position2048V& reflect_tr() {
+		perm_self(Perm8x16::reflect_tr_64);
 		return *this;
 	}
 
@@ -601,6 +670,7 @@ struct Position2048V {
 #define ROL_32 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13
 #define ROL_64 4, 5, 6, 7, 0, 1, 2, 3, 12, 13, 14, 15, 8, 9, 10, 11
 #define FLIP_ROWS 6, 7, 4, 5, 2, 3, 0, 1, 14, 15, 12, 13, 10, 11, 8, 9
+#define FLIP_ROWS_R 9, 8, 11, 10, 13, 12, 15, 14, 1, 0, 3, 2, 5, 4, 7, 6
 
 	inline Position2048V& make_canonical() {
 
@@ -716,27 +786,14 @@ struct Position2048V {
 			// Flip the board vertically into flipped_y
 
 			VEC_TYPE flipped_y;
-#ifdef __AVX512F__
-			// vprolq + vprold suffices. pshufb might be slightly better
-			if constexpr (count == 2) {
-				flipped_y = _mm_rol_epi64(flipped_x, 32);
-				flipped_y = _mm_rol_epi32(flipped_y, 16);
-			} else if constexpr (count == 4) {
-				flipped_y = _mm256_rol_epi64(flipped_x, 32);
-				flipped_y = _mm256_rol_epi32(flipped_y, 16);
-			} else {
-				flipped_y = _mm512_rol_epi64(flipped_x, 32);
-				flipped_y = _mm512_rol_epi32(flipped_y, 16);
-			}
-#else
+
 			if constexpr (count == 2) {
 				flipped_y = _mm_shuffle_epi8(flipped_x, _mm_setr_epi8(FLIP_ROWS));
 			} else if constexpr (count == 4) {
 				flipped_y = _mm256_shuffle_epi8(flipped_x, _mm256_setr_epi8(FLIP_ROWS, FLIP_ROWS));
 			} else {
-				flipped_y = _mm512_shuffle_epi8(flipped_x, _mm512_setr_epi8(FLIP_ROWS, FLIP_ROWS, FLIP_ROWS, FLIP_ROWS));
+				flipped_y = _mm512_shuffle_epi8(flipped_x, _mm512_set_epi8(FLIP_ROWS_R, FLIP_ROWS_R, FLIP_ROWS_R, FLIP_ROWS_R));
 			}
-#endif
 
 			// Flip diagonally (trickier)
 			// 0  1  2  3       0  4  8 12
@@ -744,7 +801,18 @@ struct Position2048V {
 			// 8  9 10 11       2  6 10 14
 			//12 13 14 15       3  7 11 15
 			// Conclusion: shuffle 
-			std::tie(hi_nib, lo_nib) = _extract_nibbles(flipped_y);
+		
+			VEC_TYPE flipped_tl;
+			
+			if constexpr (count == 2) {
+				flipped_tl = shuffle_nibbles_v(flipped_y, _mm_set1_epi64x(Perm8x16::reflect_tl_64));
+			} else if constexpr (count == 4) {
+				flipped_tl = shuffle_nibbles_v(flipped_y, _mm256_set1_epi64x(Perm8x16::reflect_tl_64));
+			} else {
+				flipped_tl = shuffle_nibbles_v(flipped_y, _mm512_set1_epi64(Perm8x16::reflect_tl_64));
+			}
+
+			tiles.v = flipped_tl;
 		} else {
 			for (Position2048& p : tiles.p) {
 				p.make_canonical();

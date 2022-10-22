@@ -1,3 +1,5 @@
+#pragma once
+
 #include <immintrin.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -12,29 +14,29 @@ inline void split_nibble_shuffle_128(__m128i shuf, __m128i* hi, __m128i* lo) {
     __m128i lo_nibble_msk = _mm_set1_epi8(0xf);
     __m128i indices_lo = _mm_and_si128(lo_nibble_msk, shuf);
     __m128i indices_hi = _mm_andnot_si128(lo_nibble_msk, shuf);
-    *hi = _mm_slli_epi32(indices_lo, 2);
-    *lo = _mm_srli_epi32(indices_hi, 2);
+    *lo = _mm_slli_epi32(indices_lo, 2);
+    *hi = _mm_srli_epi32(indices_hi, 2);
 }
 
 inline void split_nibble_shuffle_256(__m256i shuf, __m256i* hi, __m256i* lo) {
     __m256i lo_nibble_msk = _mm256_set1_epi8(0xf);
     __m256i indices_lo = _mm256_and_si256(lo_nibble_msk, shuf);
     __m256i indices_hi = _mm256_andnot_si256(lo_nibble_msk, shuf);
-    *hi = _mm256_slli_epi32(indices_lo, 2);
-    *lo = _mm256_srli_epi32(indices_hi, 2);
+    *lo = _mm256_slli_epi32(indices_lo, 2);
+    *hi = _mm256_srli_epi32(indices_hi, 2);
 }
 
 inline void split_nibble_shuffle_512(__m512i shuf, __m512i* hi, __m512i* lo) {
     __m512i lo_nibble_msk = _mm512_set1_epi8(0xf);
     __m512i indices_lo = _mm512_and_si512(lo_nibble_msk, shuf);
     __m512i indices_hi = _mm512_andnot_si512(lo_nibble_msk, shuf);
-    *hi = _mm512_slli_epi32(indices_lo, 2);
-    *lo = _mm512_srli_epi32(indices_hi, 2);
+    *lo = _mm512_slli_epi32(indices_lo, 2);
+    *hi = _mm512_srli_epi32(indices_hi, 2);
 }
 #endif
 
 // Convention: (a & (0xf << (4 * i))) >> (4 * i) is the ith nibble of a (i.e., lowest-significant is 0)
-uint64_t shuffle_nibbles_scalar(uint64_t data, uint64_t indices) {
+inline uint64_t shuffle_nibbles_scalar(uint64_t data, uint64_t indices) {
     uint64_t result = 0;
     for (int i = 0; i < 16; ++i) {
 	indices = (indices >> 60) + (indices << 4);
@@ -47,14 +49,21 @@ uint64_t shuffle_nibbles_scalar(uint64_t data, uint64_t indices) {
     return result;
 }
 
-void shuffle_nibbles_arr(const uint64_t* data, const uint64_t* indices, uint64_t* result, int len) {
+inline void shuffle_nibbles_arr(const uint64_t* data, const uint64_t* indices, uint64_t* result, int len) {
 	for (int i = 0; i < len; ++i) {
 		result[i] = shuffle_nibbles_scalar(data[i], indices[i]);
 	}
 }
 
+// Shuffle u64 where all shuffles are the same
+inline void shuffle_nibbles_arr_same(const uint64_t* data, uint64_t indices, uint64_t* result, int len) {
+	for (int i = 0; i < len; ++i) {
+		result[i] = shuffle_nibbles_scalar(data[i], indices);
+	}
+}
+
 #ifdef __AVX2__
-inline __m128i shuffle_nibbles_128(__m128i data, __m128i idx) {
+inline __m128i shuffle_nibbles_v(__m128i data, __m128i idx) {
 #ifdef USE_NIBBLE_SHUFFLE_VBMI
 	__m128i lo_nibble_msk = _mm_set1_epi8(0x0f);
 
@@ -75,7 +84,11 @@ inline __m128i shuffle_nibbles_128(__m128i data, __m128i idx) {
 	return _mm_loadu_si128((const __m128i*) result);
 }
 
-inline __m256i shuffle_nibbles_256(__m256i data, __m256i idx) {
+inline __m128i shuffle_nibbles_v_same(__m128i data, uint64_t idx) {
+	return shuffle_nibbles_v(data, _mm_set1_epi64x(idx));
+}
+
+inline __m256i shuffle_nibbles_v(__m256i data, __m256i idx) {
 #ifdef USE_NIBBLE_SHUFFLE_VBMI
 	__m256i lo_nibble_msk = _mm256_set1_epi8(0x0f);
 
@@ -95,10 +108,14 @@ inline __m256i shuffle_nibbles_256(__m256i data, __m256i idx) {
 
 	return _mm256_loadu_si256((const __m256i*) result);
 }
+
+inline __m256i shuffle_nibbles_v_same(__m256i data, uint64_t idx) {
+	return shuffle_nibbles_v(data, _mm256_set1_epi64x(idx));
+}
 #endif
 
 #ifdef __AVX512F__
-inline __m512i shuffle_nibbles_512(__m512i data, __m512i idx) {
+inline __m512i shuffle_nibbles_v(__m512i data, __m512i idx) {
 #ifdef USE_NIBBLE_SHUFFLE_VBMI
 	__m512i lo_nibble_msk = _mm512_set1_epi8(0x0f);
 
@@ -118,11 +135,15 @@ inline __m512i shuffle_nibbles_512(__m512i data, __m512i idx) {
 
 	return _mm512_loadu_si512((const __m512i*) result);
 }
+
+inline __m512i shuffle_nibbles_v_same(__m512i data, uint64_t idx) {
+	return  shuffle_nibbles_v(data, _mm512_set1_epi64(idx));
+}
 #endif
 
 inline uint64_t shuffle_nibbles(uint64_t a, uint64_t b) {
 #ifdef USE_NIBBLE_SHUFFLE_VBMI
-	_mm_cvtsi128_si64(shuffle_nibbles_128(_mm_cvtsi64_si128(a), _mm_cvtsi64_si128(b)));
+	return _mm_cvtsi128_si64(shuffle_nibbles_v(_mm_cvtsi64_si128(a), _mm_cvtsi64_si128(b)));
 #else
 	return shuffle_nibbles_scalar(a, b);
 #endif

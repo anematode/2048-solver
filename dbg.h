@@ -78,6 +78,8 @@ constexpr const char* fmt_string_x =
     )))))))));
 
 namespace {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-attributes"
 	    template <typename ElemType, typename VT, bool hex=false>
 		    void print_vec_base(const VT v) {
 			    constexpr int cnt = sizeof(VT) / sizeof(ElemType);
@@ -99,6 +101,7 @@ namespace {
 
 			    puts("");
 		    }
+#pragma GCC diagnostic pop
     }
 
 template <typename ElemType, typename VT>

@@ -42,7 +42,7 @@ struct Test {
 	void summary() const {
 		printf("Test: %s\n", test_name);
 		char* s = nullptr;
-		printf("Result: %s\n", result ? (s = result->to_string()) : "not run");
+		printf("Result: %s", result ? (s = result->to_string()) : "not run\n");
 		free(s);
 
 		printf("Description: %s\n\n", description);
@@ -428,8 +428,8 @@ uint64_t test_vector_move_perf() {
 
 template <int cnt>
 uint64_t test_vector_canonical() {
+	return 1;
 	using PV = Position2048V<cnt>;
-	uint64_t cases = 0;
 
 	PV v;
 
@@ -448,6 +448,49 @@ uint64_t test_vector_canonical() {
 	return i;
 }
 
+template <int cnt>
+uint64_t test_vector_perm() {
+	using PV = Position2048V<cnt>;
+	uint64_t cases = 0;
+	PV v;
+
+	for (; cases < sizeof(random_test_positions) / sizeof(Position2048); cases += cnt) {
+		v.load(&random_test_positions[cases]);
+		for (int j = 0; j < cnt; ++j) {
+			Position2048 testp = random_test_positions[cases + j].copy();
+
+			expect_eq(testp.copy().rotate_90(), v.copy().rotate_90().tiles.p[j], "rotate 90", __LINE__);
+			expect_eq(testp.copy().rotate_180(), v.copy().rotate_180().tiles.p[j], "rotate 180", __LINE__);
+			expect_eq(testp.copy().rotate_270(), v.copy().rotate_270().tiles.p[j], "rotate 270", __LINE__);
+			expect_eq(testp.copy().reflect_v(), v.copy().reflect_v().tiles.p[j], "reflect v", __LINE__);
+			expect_eq(testp.copy().reflect_h(), v.copy().reflect_h().tiles.p[j], "reflect h", __LINE__);
+			expect_eq(testp.copy().reflect_tr(), v.copy().reflect_tr().tiles.p[j], "reflect tr", __LINE__);
+			expect_eq(testp.copy().reflect_tl(), v.copy().reflect_tl().tiles.p[j], "reflect tl", __LINE__);
+		}
+	}
+	
+	return cases;
+}
+
+template <int cnt>
+uint64_t test_vector_perm_perf() {
+	using PV = Position2048V<cnt>;
+	uint64_t cases = 0;
+	PV p;
+
+	for (int i = 0; i < 10000; ++i) {
+		for (uint64_t k = 0; k < sizeof(random_test_positions) / sizeof(Position2048); k += cnt) {
+			p.load(&random_test_positions[k]);
+			p.rotate_90();
+
+			cases++;
+
+			prevent_opt(p.tiles.v);
+		}
+	}
+
+	return cases;
+}
 void perf_move_right() {
 
 }
@@ -486,10 +529,14 @@ int main() {
 	Position2048V<4> pv;
 	pv.set_entry<0>(p);
 
-	p.make_canonical();
-	pv.make_canonical();
+	/*p.make_canonical();
+	pv.make_canonical();*/
 
-	return 0;
+	pv.rotate_90();
+	p.rotate_90();
+
+	puts(pv.extract_entry<0>().to_string());
+	puts(p.to_string());
 
 
 	add_test(
@@ -522,6 +569,30 @@ int main() {
 		"Test whether vector4 moves work the same as scalar moves",
 		"test_vector4_move"
 		);
+	add_test(
+		test_vector_perm<2>,
+		TestType::CORRECTNESS,
+		"Test whether vector2 permutations work the same as scalar permutations",
+		"test_vector2_permutation"
+		);
+	add_test(
+		test_vector_perm<4>,
+		TestType::CORRECTNESS,
+		"Test whether vector4 permutations work the same as scalar permutations",
+		"test_vector4_permutation"
+		);
+	add_test(
+		test_vector_perm_perf<2>,
+		TestType::X86_PERF,
+		"Test vector2 perm perf",
+		"test_vector2_perm_perf"
+		);
+	add_test(
+		test_vector_perm_perf<4>,
+		TestType::X86_PERF,
+		"Test vector4 perm perf",
+		"test_vector4_perm_perf"
+		);
 
 #ifdef __AVX512F__
 	add_test(
@@ -535,6 +606,18 @@ int main() {
 		TestType::CORRECTNESS,
 		"Test whether vector8 moves work the same as scalar moves",
 		"test_vector8_move"
+		);
+	add_test(
+		test_vector_perm<8>,
+		TestType::CORRECTNESS,
+		"Test whether vector8 permutations work the same as scalar permutations",
+		"test_vector8_permutation"
+		);
+	add_test(
+		test_vector_perm_perf<8>,
+		TestType::X86_PERF,
+		"Test vector8 perm perf",
+		"test_vector8_perm_perf"
 		);
 #endif
 
@@ -552,12 +635,12 @@ int main() {
 		"test_canonical"
 		);*/
 
-	add_test(
+	/*add_test(
 		test_canonical_2,
 		TestType::CORRECTNESS,
 		"Test whether canonical positions are consistent hard core",
 		"test_canonical_2"
-		);
+		);*/
 
 
 	add_neon_tests();
