@@ -426,6 +426,28 @@ uint64_t test_vector_move_perf() {
 	return cases;
 }
 
+template <int cnt>
+uint64_t test_vector_canonical() {
+	using PV = Position2048V<cnt>;
+	uint64_t cases = 0;
+
+	PV v;
+
+	uint64_t i = 0;
+	for (; i < sizeof(random_test_positions) / sizeof(Position2048); i += cnt) {
+		v.load(&random_test_positions[i]);
+
+		v.make_canonical();
+
+		for (int j = 0; j < cnt; ++j) {
+			Position2048 correct = random_test_positions[i + j].copy().make_canonical();
+			expect_eq(v.tiles.p[j], correct, "vector canonical", __LINE__);
+		}
+	}
+
+	return i;
+}
+
 void perf_move_right() {
 
 }
@@ -454,19 +476,20 @@ int main() {
 	fill_random_test_positions();
 
 	Position2048 p {
-0, 0, 0, 0,
+2, 0, 0, 0,
 0, 0, 0, 0,
 0, 4, 4, 8,
 8, 0, 0, 0
 	};
 
-	// Position2048 q = p;
-	p.rotate_270();
 
-	puts(p.to_string());
-	puts(p.make_canonical().to_string());
-	
-	//return 0;
+	Position2048V<4> pv;
+	pv.set_entry<0>(p);
+
+	p.make_canonical();
+	pv.make_canonical();
+
+	return 0;
 
 
 	add_test(
@@ -514,6 +537,13 @@ int main() {
 		"test_vector8_move"
 		);
 #endif
+
+	add_test(
+		test_vector_canonical<4>,
+		TestType::CORRECTNESS,
+		"Test whether vector canonicals work the same as scalar",
+		"test_vector4_canonical"
+		);
 
 	/*add_test(
 		test_canonical,

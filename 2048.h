@@ -291,6 +291,8 @@ struct Position2048 {
 		int com_x, com_y;
 		_compute_center_of_mass(&com_x, &com_y);
 
+		printf("Correct com: %i %i\n", com_x, com_y);
+
 		if (com_x < 0) {
 			reflect_h();
 			com_x *= -1;
@@ -431,24 +433,24 @@ struct Position2048V {
 	} tiles;
 
 	template <int idx>
-	inline Position2048 _extract_entry() const {
+	inline Position2048 extract_entry() const {
 		static_assert(idx >= 0 && idx < count);
 
 		return Position2048V(tiles.p[idx]);
 	}
 
-	inline Position2048 _extract_entry_v(int idx) const {
+	inline Position2048 extract_entry_v(int idx) const {
 		assert(idx >= 0 && idx < count);
 		return Position2048(tiles.p[idx]);
 	}
 
 	template <int idx>
-	inline void _set_entry(Position2048 a) {
+	inline void set_entry(Position2048 a) {
 		static_assert(idx >= 0 && idx < count);
 		tiles.p[idx] = a;
 	}
 
-	inline void _set_entry_v(Position2048 v, int idx) {
+	inline void set_entry_v(Position2048 v, int idx) {
 		assert(idx >= 0 && idx < count);
 		tiles.p[idx] = v;
 	}
@@ -552,27 +554,27 @@ struct Position2048V {
 		// Compute the center of mass (c_x, c_y) into one vector, where the higher 32-bit value contains
 	}*/
 
-	std::pair<VEC_TYPE, VEC_TYPE> _extract_nibbles() {
-		if constexpr (vectorize) {
+	std::pair<VEC_TYPE, VEC_TYPE> _extract_nibbles(VEC_TYPE t) {
+		if constexpr (!vectorize) {
 			return { (tiles >> 4) & HI_NIBBLES, tiles & LO_NIBBLES };
 		} else {
 			if constexpr (count == 2) {
 				__m128i msk = _mm_set1_epi8(0xf);	
 				return {
-					_mm_and_si128(_mm_srli_epi32(tiles, 4), msk),
-					_mm_and_si128(tiles, msk)
+					_mm_and_si128(_mm_srli_epi32(t, 4), msk),
+					_mm_and_si128(t, msk)
 				};
-			} else if (count == 4) {
+			} else if constexpr (count == 4) {
 				__m256i msk = _mm256_set1_epi8(0xf);	
 				return {
-					_mm256_and_si128(_mm256_srli_epi32(tiles, 4), msk),
-					_mm256_and_si128(tiles, msk)
+					_mm256_and_si256(_mm256_srli_epi32(t, 4), msk),
+					_mm256_and_si256(t, msk)
 				};
 			} else {
 				__m512i msk = _mm512_set1_epi8(0xf);	
 				return {
-					_mm512_and_si128(_mm512_srli_epi32(tiles, 4), msk),
-					_mm512_and_si128(tiles, msk)
+					_mm512_and_si512(_mm512_srli_epi32(t, 4), msk),
+					_mm512_and_si512(t, msk)
 				};
 			}
 
@@ -594,38 +596,47 @@ struct Position2048V {
 		return ss;
 	}
 
+#define ROL_16 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14
+#define ROL_32 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13
+#define ROL_64 4, 5, 6, 7, 0, 1, 2, 3, 12, 13, 14, 15, 8, 9, 10, 11
+#define FLIP_ROWS 6, 7, 4, 5, 2, 3, 0, 1, 14, 15, 12, 13, 10, 11, 8, 9
+
 	inline Position2048V& make_canonical() {
 
 		if constexpr (vectorize) {
-			VEC_TYPE lo_nib, hi_nib;
+			VEC_TYPE lo_nib, hi_nib, lo_nib_sl1;
 
-			std::tie(hi_nib, lo_nib) = _extract_nibbles();
+			std::tie(hi_nib, lo_nib) = _extract_nibbles(tiles.v);
 
 			VEC_TYPE com_x, com_y, com_x_hi_w, com_x_lo_w, com_y_w, nib_sum;
 
 			// First, compute center of mass
 
-			const uint64_t COM_X_HI_W = 0xc1ffc1ff'c1ffc1ff;
-			const uint64_t COM_X_LO_W = 0x013f013f'013f013f;
-			const uint64_t COM_Y_W = 0xc1c1ffff'00003f3f;
+			const uint64_t COM_X_HI_W = 0x3f013f01'3f013f01;//0xc1ffc1ff'c1ffc1ff;
+			const uint64_t COM_X_LO_W = 0xffc1ffc1'ffc1ffc1;// 0x013f013f'013f013f;
+			const uint64_t COM_Y_W = 0x3f3f0101'ffffc1c1;
+				//0xc1c1ffff'00003f3f;
 
 			if constexpr (count == 2) {
 				com_x_hi_w = _mm_set1_epi64x(COM_X_HI_W);
 				com_x_lo_w = _mm_set1_epi64x(COM_X_LO_W);
 				com_y_w = _mm_set1_epi64x(COM_Y_W);
-			} else if (count == 4) {
+				lo_nib_sl1 = _mm_slli_epi32(lo_nib, 4);
+			} else if constexpr (count == 4) {
 				com_x_hi_w = _mm256_set1_epi64x(COM_X_HI_W);
 				com_x_lo_w = _mm256_set1_epi64x(COM_X_LO_W);
 				com_y_w = _mm256_set1_epi64x(COM_Y_W);
+				lo_nib_sl1 = _mm_slli_epi32(lo_nib, 4);
 			} else {
 				com_x_hi_w = _mm512_set1_epi64(COM_X_HI_W);
 				com_x_lo_w = _mm512_set1_epi64(COM_X_LO_W);
 				com_y_w = _mm512_set1_epi64(COM_Y_W);
+				lo_nib_sl1 = _mm_slli_epi32(lo_nib, 4);
 			}
 
 			if constexpr (count == 2)
 				nib_sum = _mm_add_epi16(hi_nib, lo_nib);
-			else if (count == 4)
+			else if constexpr (count == 4)
 				nib_sum = _mm256_add_epi16(hi_nib, lo_nib);
 			else 
 				nib_sum = _mm512_add_epi16(hi_nib, lo_nib);
@@ -633,18 +644,22 @@ struct Position2048V {
 
 #if defined(__AVX512VNNI__) || defined(__AVXVNNI__)
 			if constexpr (count == 2) {
-				com_x = _mm_dpbusd_epi32(_mm_setzero_si128(), hi_nib, COM_X_HI_W);
-				com_x = _mm_dpbusd_epi32(com_x, lo_nib, COM_X_LO_W);
-				com_y = _mm_dpbusd_epi32(_mm_setzero_si128(), nib_sum, COM_Y_W);
+				com_x = _mm_dpbusd_epi32(_mm_setzero_si128(), hi_nib, com_x_hi_w);
+				com_x = _mm_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
+				com_y = _mm_dpbusd_epi32(_mm_setzero_si128(), nib_sum, com_y_w);
 			} else if constexpr (count == 4) {
-				com_x = _mm256_dpbusd_epi32(_mm256_setzero_si256(), hi_nib, COM_X_HI_W);
-				com_x = _mm256_dpbusd_epi32(com_x, lo_nib, COM_X_LO_W);
-				com_y = _mm256_dpbusd_epi32(_mm256_setzero_si256(), nib_sum, COM_Y_W);
+				com_x = _mm256_dpbusd_epi32(_mm256_setzero_si256(), hi_nib, com_x_hi_w);
+				com_x = _mm256_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
+				com_y = _mm256_dpbusd_epi32(_mm256_setzero_si256(), nib_sum, com_y_w);
 			} else {
-				com_x = _mm512_dpbusd_epi32(_mm512_setzero_si512(), hi_nib, COM_X_HI_W);
-				com_y = _mm512_dpbusd_epi32(_mm512_setzero_si512(), nib_sum, COM_Y_W);
-				com_x = _mm512_dpbusd_epi32(com_x, lo_nib, COM_X_LO_W);
+				com_x = _mm512_dpbusd_epi32(_mm512_setzero_si512(), hi_nib, com_x_hi_w);
+				com_y = _mm512_dpbusd_epi32(_mm512_setzero_si512(), nib_sum, com_y_w);
+				com_x = _mm512_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
 			}
+
+			puts("Hi");
+			print_vec<int32_t>(com_x);
+			print_vec<int32_t>(com_y);
 #else  // No VNNI code path
 			if constexpr (count == 2) {	
 				__m128i com_x0 = _mm_maddubs_epi16(hi_nib, COM_X_HI_W);
@@ -680,11 +695,55 @@ struct Position2048V {
 				com_x = _mm512_madd_epi16(com_x, all_1);
 				com_y = _mm512_madd_epi16(com_y, all_1);
 			}
-
 #endif // __AVX512F__
 
-			// We've already separated into nibbles, so let's first flip horizontally. com_x contains two 32-bit chunks that
+			VEC_TYPE flipped_x, rol_nib = lo_nib_sl1 | hi_nib;
 
+			// Flip the board horizontally into flipped_x
+			if constexpr (count == 2) {
+				__m128i rol_16 = _mm_setr_epi8(ROL_16);
+				flipped_x = _mm_shuffle_epi8(rol_nib, rol_16);
+			} else if constexpr (count == 4) {
+				// we have hi nibs and low nibs already.
+				__m256i rol_16 = _mm256_setr_epi8(ROL_16, ROL_16);
+				flipped_x = _mm256_shuffle_epi8(rol_nib, rol_16);
+			} else {
+				__m512i rol_16 = _mm512_setr_epi8(ROL_16, ROL_16, ROL_16, ROL_16);
+				flipped_x = _mm512_shuffle_epi8(rol_nib, rol_16);
+			}
+
+			// Flip the board vertically into flipped_y
+
+			VEC_TYPE flipped_y;
+#ifdef __AVX512F__
+			// vprolq + vprold suffices. pshufb might be slightly better
+			if constexpr (count == 2) {
+				flipped_y = _mm_rol_epi64(flipped_x, 32);
+				flipped_y = _mm_rol_epi32(flipped_y, 16);
+			} else if constexpr (count == 4) {
+				flipped_y = _mm256_rol_epi64(flipped_x, 32);
+				flipped_y = _mm256_rol_epi32(flipped_y, 16);
+			} else {
+				flipped_y = _mm512_rol_epi64(flipped_x, 32);
+				flipped_y = _mm512_rol_epi32(flipped_y, 16);
+			}
+#else
+			if constexpr (count == 2) {
+				flipped_y = _mm_shuffle_epi8(flipped_x, _mm_setr_epi8(FLIP_ROWS));
+			} else if constexpr (count == 4) {
+				flipped_y = _mm256_shuffle_epi8(flipped_x, _mm256_setr_epi8(FLIP_ROWS, FLIP_ROWS));
+			} else {
+				flipped_y = _mm512_shuffle_epi8(flipped_x, _mm512_setr_epi8(FLIP_ROWS, FLIP_ROWS, FLIP_ROWS, FLIP_ROWS));
+			}
+#endif
+
+			// Flip diagonally (trickier)
+			// 0  1  2  3       0  4  8 12
+			// 4  5  6  7  -->  1  5  9 13
+			// 8  9 10 11       2  6 10 14
+			//12 13 14 15       3  7 11 15
+			// Conclusion: shuffle 
+			std::tie(hi_nib, lo_nib) = _extract_nibbles(flipped_y);
 		} else {
 			for (Position2048& p : tiles.p) {
 				p.make_canonical();
