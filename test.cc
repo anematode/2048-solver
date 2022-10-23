@@ -657,6 +657,19 @@ int main() {
 		"Test speed of vector4 canonical",
 		"test_vector4_canonical_perf"
 		);
+	add_test(
+		test_vector_canonical<8>,
+		TestType::CORRECTNESS,
+		"Test whether vector canonicals work the same as scalar",
+		"test_vector4_canonical"
+		);
+
+	add_test(
+		test_vector_canonical_perf<8>,
+		TestType::X86_PERF,
+		"Test speed of vector4 canonical",
+		"test_vector4_canonical_perf"
+		);
 	/*add_test(
 		test_canonical,
 		TestType::CORRECTNESS,

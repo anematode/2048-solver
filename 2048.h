@@ -720,20 +720,7 @@ struct Position2048V {
 						Perm8x16::reflect_tr_64, Perm8x16::reflect_tl_64);
 
 			if constexpr (count == 2) {
-				com_x = _mm_dpbusd_epi32(_mm_setzero_si128(), hi_nib, com_x_hi_w);
-				com_x = _mm_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
-				com_y = _mm_dpbusd_epi32(_mm_setzero_si128(), nib_sum, com_y_w);
-
-				com_y = _mm_maskz_add_epi16(0b00010001, _mm_srli_epi64(com_y, 32), com_y); // com_y in low 16 only
-				com_x = _mm_maskz_add_epi16(0b00010001, _mm_rol_epi64(com_x, 32), com_x); // com_x in high 16 and low 16 only
-
-				com_xy_diff = _mm_maskz_sub_epi16(0b00010001, com_y, com_x); // diff_xy in low 32 only
-				com_y = _mm_slli_epi32(com_y, 16);   // com_y in middle 16 only
-
-				com_all = com_x | com_y | com_xy_diff;  // single ternary op
-				perm_idx = _mm_popcnt_epi64(com_all & _mm_set1_epi64x(0x0000'000f'0003'0001));
-				
-				perms = _mm_castsi256_si128(_mm256_permutex2var_epi64(perm_lut1, _mm256_castsi128_si256(perm_idx), perm_lut2));
+				// TODO
 			} else if constexpr (count == 4) {
 				const __m256i zero = _mm256_setzero_si256();
 				com_x = _mm256_dpbusd_epi32(zero, hi_nib, com_x_hi_w);
@@ -794,17 +781,71 @@ struct Position2048V {
 				ACCUM(Perm8x16::reflect_tr_64)
 				ACCUM(Perm8x16::reflect_tl_64)
 
+#undef ACCUM
 				tiles.v = _mm256_mask_blend_epi64(worst, tiles.v, running);
 			} else {
-				com_x = _mm512_dpbusd_epi32(_mm512_setzero_si512(), hi_nib, com_x_hi_w);
-				com_y = _mm512_dpbusd_epi32(_mm512_setzero_si512(), nib_sum, com_y_w);
+				const __m512i zero = _mm512_setzero_si512();
+				const __m512i perm_lut = 
+				_mm512_set_epi64(Perm8x16::rotate_180_64, Perm8x16::reflect_v_64, Perm8x16::reflect_tr_64, Perm8x16::reflect_tl_64, Perm8x16::reflect_tr_64, Perm8x16::rotate_270_64, Perm8x16::identity_64, Perm8x16::identity_64);
+				com_x = _mm512_dpbusd_epi32(zero, hi_nib, com_x_hi_w);
 				com_x = _mm512_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
+				com_y = _mm512_dpbusd_epi32(zero, nib_sum, com_y_w);
 
-				// Automatically broadcasts into each 32-bit chunk, which we will find useful
-				com_y = _mm512_add_epi32(_mm512_rol_epi64(com_y, 32), com_y);
-				com_x = _mm512_add_epi32(_mm512_rol_epi64(com_x, 32), com_x);
+				com_y = _mm512_maskz_add_epi16(0x11111111, _mm512_srli_epi64(com_y, 32), com_y); // com_y in low 16 only
+				com_x = _mm512_maskz_add_epi16(0x11111111, _mm512_rol_epi64(com_x, 32), com_x); // com_x in low 16 only
 
-				com_xy_diff = _mm512_sub_epi32(com_y, com_x);
+				com_xy_diff = _mm512_slli_epi64(_mm512_sub_epi16(
+							_mm512_abs_epi16(com_x), _mm512_abs_epi16(com_y)
+							), 32); // diff_xy in high 16 only
+				com_y = _mm512_slli_epi32(com_y, 16);   // com_y in middle 16 only
+
+				com_all = _mm512_ternarylogic_epi32(com_x, com_y, com_xy_diff, 254);  // 3-way OR
+
+				__mmask32 negative = _mm512_cmpgt_epi16_mask(zero, com_all); 
+				__m512i idxs = _mm512_popcnt_epi64(_mm512_maskz_mov_epi16(negative, _mm512_set1_epi64(0x000f00030001)));
+
+				perms = _mm512_permutexvar_epi64(idxs, perm_lut);
+				tiles.v = shuffle_nibbles_v(tiles.v, perms);
+
+				__mmask32 cmp0 = _mm512_cmpeq_epi16_mask(com_all, zero);
+
+				if (__builtin_expect(!cmp0, 1)) return *this;
+
+				// Slow fallback, fairly rare wiht realistic positions
+
+				__mmask32 cmp_xy0 = _mm512_cmpeq_epi64_mask(com_xy_diff, zero);
+
+				__mmask32 cmp_x0 = _mm512_cmpeq_epi64_mask(com_x, zero);
+				__mmask32 cmp_y0 = _mm512_cmpeq_epi64_mask(com_y, zero);
+
+				if (cmp_x0) {
+					__m512i flip_x = shuffle_nibbles_v_same(tiles.v, Perm8x16::reflect_h_64);
+					tiles.v = _mm512_mask_max_epi64(tiles.v, cmp_x0, tiles.v, flip_x);
+				}
+
+				if (cmp_y0) {
+					__m512i flip_y = shuffle_nibbles_v_same(tiles.v, Perm8x16::reflect_v_64);
+					tiles.v = _mm512_mask_max_epi64(tiles.v, cmp_y0, tiles.v, flip_y);
+				}
+
+				__mmask32 worst = cmp_xy0 & cmp_x0;
+
+				if (__builtin_expect(!worst, 1)) return *this;
+
+					// Very slow fallback
+				#define ACCUM(shuf) kk = shuffle_nibbles_v_same(tiles.v, shuf); \
+					running = _mm512_max_epu64(kk, running);	
+				__m512i running = tiles.v, kk;
+
+				ACCUM(Perm8x16::rotate_90_64)
+				ACCUM(Perm8x16::rotate_180_64)
+				ACCUM(Perm8x16::rotate_270_64)
+				ACCUM(Perm8x16::reflect_h_64)
+				ACCUM(Perm8x16::reflect_v_64)
+				ACCUM(Perm8x16::reflect_tr_64)
+				ACCUM(Perm8x16::reflect_tl_64)
+
+#undef ACCUM
 			}
 #else  // No VNNI code path (BROKEN)
 #error "no"
