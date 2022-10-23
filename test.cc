@@ -643,13 +643,13 @@ int main() {
 		);
 #endif
 
-	/*
+	
 	add_test(
 		test_vector_canonical<4>,
 		TestType::CORRECTNESS,
 		"Test whether vector canonicals work the same as scalar",
 		"test_vector4_canonical"
-		);*/
+		);
 
 	add_test(
 		test_vector_canonical_perf<4>,

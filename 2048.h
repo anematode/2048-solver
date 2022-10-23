@@ -735,9 +735,10 @@ struct Position2048V {
 				
 				perms = _mm_castsi256_si128(_mm256_permutex2var_epi64(perm_lut1, _mm256_castsi128_si256(perm_idx), perm_lut2));
 			} else if constexpr (count == 4) {
-				com_x = _mm256_dpbusd_epi32(_mm256_setzero_si256(), hi_nib, com_x_hi_w);
+				const __m256i zero = _mm256_setzero_si256();
+				com_x = _mm256_dpbusd_epi32(zero, hi_nib, com_x_hi_w);
 				com_x = _mm256_dpbusd_epi32(com_x, lo_nib, com_x_lo_w);
-				com_y = _mm256_dpbusd_epi32(_mm256_setzero_si256(), nib_sum, com_y_w);
+				com_y = _mm256_dpbusd_epi32(zero, nib_sum, com_y_w);
 
 				com_y = _mm256_maskz_add_epi16(0x1111, _mm256_srli_epi64(com_y, 32), com_y); // com_y in low 16 only
 				com_x = _mm256_maskz_add_epi16(0x1111, _mm256_rol_epi64(com_x, 32), com_x); // com_x in low 16 only
@@ -747,20 +748,19 @@ struct Position2048V {
 							), 32); // diff_xy in high 16 only
 				com_y = _mm256_slli_epi32(com_y, 16);   // com_y in middle 16 only
 
-				com_all = com_x | com_y | com_xy_diff;  // single ternary op		
+				com_all = _mm256_ternarylogic_epi32(com_x, com_y, com_xy_diff, 254);  // 3-way OR
 
-				__mmask16 negative = _mm256_cmpgt_epi16_mask(_mm256_setzero_si256(), com_all); 
+				__mmask16 negative = _mm256_cmpgt_epi16_mask(zero, com_all); 
 				__m256i idxs = _mm256_popcnt_epi64(_mm256_maskz_mov_epi16(negative, _mm256_set1_epi64x(0x000f00030001)));
 
 				perms = _mm256_permutex2var_epi64(perm_lut1, idxs, perm_lut2);
 				tiles.v = shuffle_nibbles_v(tiles.v, perms);
 
-				__mmask16 cmp0 = _mm256_cmpeq_epi16_mask(com_all, _mm256_setzero_si256());
+				__mmask16 cmp0 = _mm256_cmpeq_epi16_mask(com_all, zero);
 
 				if (__builtin_expect(!cmp0, 1)) return *this;
 
 				// Slow fallback, fairly rare wiht realistic positions
-				const __m256i zero = _mm256_setzero_si256();
 
 				__mmask16 cmp_xy0 = _mm256_cmpeq_epi64_mask(com_xy_diff, zero);
 
@@ -779,22 +779,22 @@ struct Position2048V {
 
 				__mmask16 worst = cmp_xy0 & cmp_x0;
 
-				if (worst) { [[unlikely]]
+				if (__builtin_expect(!worst, 1)) return *this;
+
 					// Very slow fallback
 				#define ACCUM(shuf) kk = shuffle_nibbles_v_same(tiles.v, shuf); \
 					running = _mm256_max_epu64(kk, running);	
-					__m256i running = tiles.v, kk;
+				__m256i running = tiles.v, kk;
 
-					ACCUM(Perm8x16::rotate_90_64)
-					ACCUM(Perm8x16::rotate_180_64)
-					ACCUM(Perm8x16::rotate_270_64)
-					ACCUM(Perm8x16::reflect_h_64)
-					ACCUM(Perm8x16::reflect_v_64)
-					ACCUM(Perm8x16::reflect_tr_64)
-					ACCUM(Perm8x16::reflect_tl_64)
+				ACCUM(Perm8x16::rotate_90_64)
+				ACCUM(Perm8x16::rotate_180_64)
+				ACCUM(Perm8x16::rotate_270_64)
+				ACCUM(Perm8x16::reflect_h_64)
+				ACCUM(Perm8x16::reflect_v_64)
+				ACCUM(Perm8x16::reflect_tr_64)
+				ACCUM(Perm8x16::reflect_tl_64)
 
-					tiles.v = _mm256_mask_blend_epi64(worst, tiles.v, running);
-				}
+				tiles.v = _mm256_mask_blend_epi64(worst, tiles.v, running);
 			} else {
 				com_x = _mm512_dpbusd_epi32(_mm512_setzero_si512(), hi_nib, com_x_hi_w);
 				com_y = _mm512_dpbusd_epi32(_mm512_setzero_si512(), nib_sum, com_y_w);
