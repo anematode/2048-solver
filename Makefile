@@ -117,6 +117,19 @@ depend:
 .PHONY : depend
 
 #=============================================================================
+# Target rules for targets named main
+
+# Build rule for target.
+main: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 main
+.PHONY : main
+
+# fast build rule for target.
+main/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/build
+.PHONY : main/fast
+
+#=============================================================================
 # Target rules for targets named test
 
 # Build rule for target.
@@ -129,29 +142,107 @@ test/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/build
 .PHONY : test/fast
 
-src/test.o: src/test.cc.o
-.PHONY : src/test.o
+src/main.o: src/main.cc.o
+.PHONY : src/main.o
 
 # target to build an object file
-src/test.cc.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/test.cc.o
-.PHONY : src/test.cc.o
+src/main.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/main.cc.o
+.PHONY : src/main.cc.o
 
-src/test.i: src/test.cc.i
-.PHONY : src/test.i
+src/main.i: src/main.cc.i
+.PHONY : src/main.i
 
 # target to preprocess a source file
-src/test.cc.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/test.cc.i
-.PHONY : src/test.cc.i
+src/main.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/main.cc.i
+.PHONY : src/main.cc.i
 
-src/test.s: src/test.cc.s
-.PHONY : src/test.s
+src/main.s: src/main.cc.s
+.PHONY : src/main.s
 
 # target to generate assembly for a file
-src/test.cc.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/test.cc.s
-.PHONY : src/test.cc.s
+src/main.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/main.cc.s
+.PHONY : src/main.cc.s
+
+src/move_lut.o: src/move_lut.cc.o
+.PHONY : src/move_lut.o
+
+# target to build an object file
+src/move_lut.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/move_lut.cc.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/move_lut.cc.o
+.PHONY : src/move_lut.cc.o
+
+src/move_lut.i: src/move_lut.cc.i
+.PHONY : src/move_lut.i
+
+# target to preprocess a source file
+src/move_lut.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/move_lut.cc.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/move_lut.cc.i
+.PHONY : src/move_lut.cc.i
+
+src/move_lut.s: src/move_lut.cc.s
+.PHONY : src/move_lut.s
+
+# target to generate assembly for a file
+src/move_lut.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/move_lut.cc.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/move_lut.cc.s
+.PHONY : src/move_lut.cc.s
+
+src/shuffle.o: src/shuffle.cc.o
+.PHONY : src/shuffle.o
+
+# target to build an object file
+src/shuffle.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/shuffle.cc.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/shuffle.cc.o
+.PHONY : src/shuffle.cc.o
+
+src/shuffle.i: src/shuffle.cc.i
+.PHONY : src/shuffle.i
+
+# target to preprocess a source file
+src/shuffle.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/shuffle.cc.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/shuffle.cc.i
+.PHONY : src/shuffle.cc.i
+
+src/shuffle.s: src/shuffle.cc.s
+.PHONY : src/shuffle.s
+
+# target to generate assembly for a file
+src/shuffle.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/shuffle.cc.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/shuffle.cc.s
+.PHONY : src/shuffle.cc.s
+
+tests/test.o: tests/test.cc.o
+.PHONY : tests/test.o
+
+# target to build an object file
+tests/test.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/tests/test.cc.o
+.PHONY : tests/test.cc.o
+
+tests/test.i: tests/test.cc.i
+.PHONY : tests/test.i
+
+# target to preprocess a source file
+tests/test.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/tests/test.cc.i
+.PHONY : tests/test.cc.i
+
+tests/test.s: tests/test.cc.s
+.PHONY : tests/test.s
+
+# target to generate assembly for a file
+tests/test.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/tests/test.cc.s
+.PHONY : tests/test.cc.s
 
 # Help Target
 help:
@@ -161,10 +252,20 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... main"
 	@echo "... test"
-	@echo "... src/test.o"
-	@echo "... src/test.i"
-	@echo "... src/test.s"
+	@echo "... src/main.o"
+	@echo "... src/main.i"
+	@echo "... src/main.s"
+	@echo "... src/move_lut.o"
+	@echo "... src/move_lut.i"
+	@echo "... src/move_lut.s"
+	@echo "... src/shuffle.o"
+	@echo "... src/shuffle.i"
+	@echo "... src/shuffle.s"
+	@echo "... tests/test.o"
+	@echo "... tests/test.i"
+	@echo "... tests/test.s"
 .PHONY : help
 
 

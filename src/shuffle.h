@@ -1,13 +1,15 @@
-#include "defs.h"
-
-#include <inttypes.h>
-#include <stdint.h>
-#include <stdio.h>
 
 /**
  * Implementations for some important basic functions, such as nibble shuffling in scalar and vector
  * cases.
  */
+#pragma once
+
+#include "defs.h"
+
+#include <cinttypes>
+#include <cstdint>
+#include <cstdio>
 
 namespace Analysis {
 	namespace fallback {
