@@ -9,6 +9,8 @@
 #ifdef __AVX2__
 #include <immintrin.h>
 
+#define USE_X86_VECTORIZE
+
 #if defined(__AVX512F__) && defined(__AVX512VL__) && defined(__AVX512BW__)
 #define USE_AVX512_VECTORIZE
 
@@ -46,4 +48,7 @@ namespace Analysis {
 
 		puts(features);
 	}
+
+	constexpr uint64_t LO_NIBBLES = 0x0f0f'0f0f'0f0f'0f0f;
+	constexpr uint64_t HI_NIBBLES = 0xf0f0'f0f0'f0f0'f0f0;
 }
