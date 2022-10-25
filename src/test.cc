@@ -1,6 +1,5 @@
 #include "defs.h"
 
-
 int main() {
 	using namespace Analysis;
 

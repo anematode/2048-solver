@@ -1,3 +1,8 @@
 bin
 *.swp
 old
+
+CMakeCache.txt
+CMakeFiles
+Makefile
+*.cmake
