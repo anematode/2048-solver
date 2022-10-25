@@ -20,6 +20,19 @@ namespace Analysis {
 		void shuffle_nibbles_arr_same(uint64_t* result, const uint64_t* data, int len, uint64_t idx);
 	}
 
+	namespace constants {
+#define PERM_64(name) constexpr inline uint64_t name 
+		PERM_64(identity) = 0xfedcba9876543210;
+		PERM_64(rotate_90) = 0xc840d951ea62fb73;
+		PERM_64(rotate_180) = 0x0123456789abcdef;
+		PERM_64(rotate_270) = 0x37bf26ae159d048c;
+		PERM_64(reflect_h) = 0xcdef89ab45670123;
+		PERM_64(reflect_v) = 0x32107654ba98fedc;
+		PERM_64(reflect_tl) = 0xfb73ea62d951c840;
+		PERM_64(reflect_tr) = 0x048c159d26ae37bf;
+#undef PERM_64
+	}
+
 	// Shuffle a 64-bit chunk of 16 nibbles by indices in idx, choosing the best implementation at run time
 	uint64_t shuffle_nibbles(uint64_t data, uint64_t idx);
 

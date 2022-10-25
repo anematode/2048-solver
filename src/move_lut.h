@@ -4,8 +4,13 @@
 #pragma once
 
 #include "defs.h"
+#include "shuffle.h"
 
 namespace Analysis {
+	// By convention, the lowest significant nibble is index 0 and corresponds to the top left corner.
+	uint8_t get_tile(uint64_t tiles, int idx);
+	uint64_t set_tile(uint64_t tiles, uint8_t tile, int idx);
+
 	namespace detail {
 		extern uint16_t* move_right_lut16;
 		extern uint32_t* move_right_lut32;
@@ -16,23 +21,30 @@ namespace Analysis {
 		}
 	}
 
-	namespace fallback {
-		uint64_t move_right(uint64_t tiles);  // All movements reduce to this
-		uint64_t move_up(uint64_t tiles);
-		uint64_t move_down(uint64_t tiles);
-		uint64_t move_left(uint64_t tiles);
-	}
+	uint64_t move_right(uint64_t tiles);  // All movements reduce to this
+	uint64_t move_up(uint64_t tiles);
+	uint64_t move_down(uint64_t tiles);
+	uint64_t move_left(uint64_t tiles);
 
-	namespace constants {
-#define PERM_64(name) constexpr inline uint64_t name 
-		PERM_64(identity) = 0xfedcba9876543210;
-		PERM_64(rotate_90) = 0xc840d951ea62fb73;
-		PERM_64(rotate_180) = 0x0123456789abcdef;
-		PERM_64(rotate_270) = 0x37bf26ae159d048c;
-		PERM_64(reflect_h) = 0xcdef89ab45670123;
-		PERM_64(reflect_v) = 0x32107654ba98fedc;
-		PERM_64(reflect_tl) = 0xfb73ea62d951c840;
-		PERM_64(reflect_tr) = 0x048c159d26ae37bf;
-#undef PERM_64
-	}
+
+#ifdef USE_X86_VECTORIZE
+	__m128i move_right(__m128i tiles);
+	__m256i move_right(__m256i tiles);
+#ifdef USE_AVX512_VECTORIZE
+	__m512i move_right(__m512i tiles);
+#endif
+
+
+	__m128i canonical_position(__m128i tiles);	
+	__m256i canonical_position(__m256i tiles);	
+#ifdef USE_AVX512_VECTORIZE
+	__m512i canonical_position(__m512i tiles);	
+#endif
+
+#endif // USE_X86_VECTORIZE
+
+
+	// See impl for details
+	uint64_t canonical_position(uint64_t tiles);
+	void compute_center_of_mass(uint64_t tiles, int* com_x, int* com_y);
 }

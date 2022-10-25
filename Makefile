@@ -193,6 +193,33 @@ src/move_lut.cc.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/move_lut.cc.s
 .PHONY : src/move_lut.cc.s
 
+src/position.o: src/position.cc.o
+.PHONY : src/position.o
+
+# target to build an object file
+src/position.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/position.cc.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/position.cc.o
+.PHONY : src/position.cc.o
+
+src/position.i: src/position.cc.i
+.PHONY : src/position.i
+
+# target to preprocess a source file
+src/position.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/position.cc.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/position.cc.i
+.PHONY : src/position.cc.i
+
+src/position.s: src/position.cc.s
+.PHONY : src/position.s
+
+# target to generate assembly for a file
+src/position.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/position.cc.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/position.cc.s
+.PHONY : src/position.cc.s
+
 src/shuffle.o: src/shuffle.cc.o
 .PHONY : src/shuffle.o
 
@@ -219,6 +246,30 @@ src/shuffle.cc.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/main.dir/build.make CMakeFiles/main.dir/src/shuffle.cc.s
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/src/shuffle.cc.s
 .PHONY : src/shuffle.cc.s
+
+tests/helper.o: tests/helper.cc.o
+.PHONY : tests/helper.o
+
+# target to build an object file
+tests/helper.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/tests/helper.cc.o
+.PHONY : tests/helper.cc.o
+
+tests/helper.i: tests/helper.cc.i
+.PHONY : tests/helper.i
+
+# target to preprocess a source file
+tests/helper.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/tests/helper.cc.i
+.PHONY : tests/helper.cc.i
+
+tests/helper.s: tests/helper.cc.s
+.PHONY : tests/helper.s
+
+# target to generate assembly for a file
+tests/helper.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test.dir/build.make CMakeFiles/test.dir/tests/helper.cc.s
+.PHONY : tests/helper.cc.s
 
 tests/test.o: tests/test.cc.o
 .PHONY : tests/test.o
@@ -260,9 +311,15 @@ help:
 	@echo "... src/move_lut.o"
 	@echo "... src/move_lut.i"
 	@echo "... src/move_lut.s"
+	@echo "... src/position.o"
+	@echo "... src/position.i"
+	@echo "... src/position.s"
 	@echo "... src/shuffle.o"
 	@echo "... src/shuffle.i"
 	@echo "... src/shuffle.s"
+	@echo "... tests/helper.o"
+	@echo "... tests/helper.i"
+	@echo "... tests/helper.s"
 	@echo "... tests/test.o"
 	@echo "... tests/test.i"
 	@echo "... tests/test.s"

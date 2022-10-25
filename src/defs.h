@@ -8,7 +8,7 @@
  * Minimum supported vectorization instruction set is AVX2. AVX512VBMI is ideal for fast shuffling.
  * ARM NEON is not of interest at the moment.
  */
-#ifdef __AVX2__
+#if defined(__AVX2__) && defined(__BMI2__) /* no CPU I'm aware of has AVX2 and not BMI2, but... */
 #include <immintrin.h>
 
 #define USE_X86_VECTORIZE
@@ -53,4 +53,17 @@ namespace Analysis {
 
 	constexpr uint64_t LO_NIBBLES = 0x0f0f'0f0f'0f0f'0f0f;
 	constexpr uint64_t HI_NIBBLES = 0xf0f0'f0f0'f0f0'f0f0;
+
+	template <typename T>
+	T max(T a, T b) {
+		return a < b ? b : a;
+	}
+
+	__attribute__((always_inline)) inline int likely(int cond) {
+		return __builtin_expect(cond, 1);
+	}
+
+	__attribute__((always_inline)) inline int unlikely(int cond) {
+		return __builtin_expect(cond, 0);
+	}
 }
