@@ -39,8 +39,8 @@ namespace Analysis {
 		uint64_t hi_s = (a - lo_s) >> 2;
 		lo_s <<= 2;
 
-		*hi = _mm_set1_epi64(hi_s);
-		*lo = _mm_set1_epi64(lo_s);
+		*hi = _mm_set1_epi64x(hi_s);
+		*lo = _mm_set1_epi64x(lo_s);
 	}
 
 	inline void split_nibble_shuffle_scalar(uint64_t shuf, uint64_t* hi, uint64_t* lo) {
