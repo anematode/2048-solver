@@ -10,6 +10,7 @@
 #include <cinttypes>
 #include <cstdint>
 #include <cstdio>
+#include <array>
 
 namespace Analysis {
 	namespace fallback {
@@ -18,6 +19,19 @@ namespace Analysis {
 		// Shuffle entries in array
 		void shuffle_nibbles_arr(uint64_t* result, const uint64_t* data, const uint64_t* idx, int len);
 		void shuffle_nibbles_arr_same(uint64_t* result, const uint64_t* data, int len, uint64_t idx);
+
+		template <int cnt>
+		std::array<uint64_t, cnt> shuffle_8x64(std::array<uint64_t, cnt> idxs, const uint64_t values[8]) {
+			decltype(idxs) result;
+			int a = 0;
+
+			for (uint64_t i : idxs) {
+				result[a] = values[i];
+				++a;
+			}
+
+			return result;
+		}
 	}
 
 	namespace constants {
@@ -44,10 +58,17 @@ namespace Analysis {
 	// Shuffle 64-bit chunks of nibbles all by the same 64-bit integer index lookup table
 	__m128i shuffle_nibbles_same(__m128i data, uint64_t idx);
 	__m256i shuffle_nibbles_same(__m256i data, uint64_t idx);
+
+	// Extract 64-bit values with idxs in idx between 0 and 7
+	__m128i shuffle_8x64(__m128i idx, const uint64_t values[8]);
+	__m256i shuffle_8x64(__m256i idx, const uint64_t values[8]);
 #endif
 
 #ifdef USE_AVX512_VECTORIZE
 	__m512i shuffle_nibbles(__m512i data, __m512i idx);
 	__m512i shuffle_nibbles_same(__m512i data, uint64_t idx);
+	__m512i shuffle_8x64(__m512i idx, const uint64_t values[8]);
 #endif
+
+	
 }

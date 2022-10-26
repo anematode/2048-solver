@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 find_package(Catch2 3 REQUIRED)
 project(morbius)
 
-set(CMAKE_CXX_STANDARD 17)  # if constexpr used
+set(CMAKE_CXX_STANDARD 20)  # concepts used...
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -g -O2")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

@@ -190,4 +190,58 @@ namespace Analysis {
 #endif
 	}
 
+
+#ifdef USE_NIBBLE_SHUFFLE_VBMI
+	// Prefer vpermi2q	
+	void load_8x64_split(const uint64_t values[8], __m256i* values1, __m256i* values2) {
+		*values1 = _mm256_loadu_si256((const __m256i*) values);	
+		*values2 = _mm256_loadu_si256((const __m256i*) (values + 4));	
+	}
+
+	__m128i shuffle_8x64(__m128i idx, const uint64_t values[8]) {
+		return _mm256_castsi256_si128(
+				shuffle_8x64(_mm256_castsi128_si256(idx), values)
+				);
+
+	}
+	__m256i shuffle_8x64(__m256i idx, const uint64_t values[8]) {
+		__m256i values1, values2;
+		load_8x64_split(&values1, &values2);
+
+		return _mm256_permutex2var_epi64(values1, idx, values2);
+	}
+#elif defined(USE_AVX512_VECTORIZE)			
+	__m256i shuffle_8x64(__m256i idx, const uint64_t values[8]) {
+		// vpermq followed by blend based on higher bit
+		__m256i values1, values2;
+		load_8x64_split(&values1, &values2);
+
+		__m256 shuffled1 = _mm256_castsi256_pd(_mm256_permutexvar_epi64(idx, values1));
+		__m256 shuffled2 = _mm256_castsi256_pd(_mm256_permutexvar_epi64(idx, values2));
+
+		__m256 blendv = _mm256_castsi256_pd(_mm256_slli_epi64(idx, 64));
+
+		return _mm256_castpd_si256(_mm256_blendv_pd(shuffled1, shuffled2, blendv));
+	}
+#elif defined(USE_AVX2_VECTORIZE)
+#error Unimplemented
+	__m256i shuffle_8x64(__m256i idx, const uint64_t values[8]) {
+		// collapse values into two halves, then 2x vpermd
+		__m256i hi_half = _mm256_
+	}
+#endif
+
+#ifdef USE_AVX512_VECTORIZE
+	// Prefer 512-bit vpermq for 512-bit vectors
+	__m512i shuffle_8x64(__m512i idx, const uint64_t values[8]) {
+		return _mm512_permutexvar_epi64(idx, values);
+	}
+#endif
+
+#ifdef USE_X86_VECTORIZE
+	__m128i shuffle_8x64(__m128i idx, const uint64_t values[8]) {
+		return _mm256_castsi256_si128(shuffle_8x64(_mm256_castsi128_si256(idx), values));
+	}
+#endif
+
 };
