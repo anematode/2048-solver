@@ -70,5 +70,15 @@ namespace Analysis {
 	__m512i shuffle_8x64(__m512i idx, const uint64_t values[8]);
 #endif
 
+	// Return 4 bits indicating whether there are any 16-bit values duplicated across 2, 4, or 8 elements, in that position
+
+#if USE_X86_VECTORIZE
+	int detect_4x16_dup(__m128i data);
+	int detect_4x16_dup(__m256i data);
+#endif
+
+#ifdef USE_AVX512_VECTORIZE
+	int detect_4x16_dup(__m512i data);
+#endif
 	
 }

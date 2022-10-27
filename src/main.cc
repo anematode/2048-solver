@@ -10,5 +10,7 @@ int main() {
 		{ 0, 0 }
 	};
 
+	p.set_idx(1, 0x101011);
+
 	printf("%s", p.to_string());
 }

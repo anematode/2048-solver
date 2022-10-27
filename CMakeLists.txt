@@ -19,7 +19,7 @@ endif()
 set(SOURCES src/shuffle.cc src/shuffle.h src/move_lut.cc src/move_lut.h src/position.cc src/position.h)
 
 add_executable(main src/main.cc ${SOURCES})
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DCATCH_CONFIG_ENABLE_BENCHMARKING")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}") # -DCATCH_CONFIG_ENABLE_BENCHMARKING")
 add_executable(test tests/test.cc tests/helper.h tests/helper.cc ${SOURCES})
 
 target_link_libraries(test PRIVATE Catch2::Catch2WithMain)

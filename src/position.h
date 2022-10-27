@@ -14,6 +14,7 @@
 
 #include "defs.h"
 #include "shuffle.h"
+#include "rng.h"
 #include <array>
 
 namespace Analysis {
@@ -56,6 +57,9 @@ namespace Analysis {
 		Position reflect_tr() const;
 
 		Position move_right() const;
+		Position move_up() const;
+		Position move_left() const;
+		Position move_down() const;
 
 #ifdef USE_X86_VECTORIZE
 		__m128i to_sse_bytes();	
@@ -70,6 +74,9 @@ namespace Analysis {
 
 		uint64_t lo_nibbles() const;
 		uint64_t hi_nibbles() const;
+
+		// Insert a random 2 or 4
+		Position get_next_random(Rng* r, bool* successful) const;
 	};
 
 	template <int count>
@@ -122,15 +129,31 @@ namespace Analysis {
 		PositionV& operator=(const PositionV& p) {
 			tiles = p->tiles;
 			return *this;
-		}	
+		}
 
-		PositionV perm(uint64_t nibble_shuffle);
+		// Defined below
+#if 0
 		char* to_string() const;
+#endif
 
-		//VEC_TYPE tile_sum();
+		// These functions have corresponding vectorized versions
+		PositionV perm(uint64_t nibble_shuffle);
+
+		VEC_TYPE tile_sum() const;
+		PositionV move_right() const;
+		PositionV canonical() const;
+		Position get_idx(int idx) const;
+		void set_idx(int idx, Position p);
 
 		/**
-		 * Scalar implementations (a few also are used for the vector implementations)
+		 * Implementations used for both scalar and vector
+		 */
+		PositionV identity() const {
+			return PositionV { tiles };
+		}
+
+		/**
+		 * Scalar-only implementations
 		 */
 
 		PositionV(VEC_TYPE tiles) {
@@ -145,15 +168,19 @@ namespace Analysis {
 			memset(&tiles[0], 0, _count * sizeof(uint64_t));
 		}
 
-		PositionV identity() const {
-			return PositionV { tiles };
-		}
 
 		PositionV perm(uint64_t nibble_shuffle) const requires (!vectorize) {
 			PositionV v;
 
 			fallback::shuffle_nibbles_arr_same(&v.tiles[0], &tiles[0], count, nibble_shuffle);
 			return v;
+		}
+
+		VEC_TYPE tile_sum() const requires (!vectorize) {
+			VEC_TYPE r;
+
+			for (int i = 0; i < count; ++i)
+				r[i] = tiles[i].tile_sum();	
 		}
 
 #define SCALAR_IMPL_PERM(name, constant)  \
@@ -171,56 +198,97 @@ namespace Analysis {
 
 #undef SCALAR_IMPL_PERM
 
-		/*
-		// For efficient input, a hexadecimal constant is preferred.
-		Position(uint64_t);
+		PositionV move_right() const requires (!vectorize) {
+			VEC_TYPE a;
 
-		Position& operator=(const Position&);
+			for (int i = 0; i < count; ++i)
+				a[i] = tiles[i].move_right();
 
-		uint32_t tile_sum() const;   // note: we compute the tile sum in tiles, not their representation
-		Position perm(uint64_t nibble_shuffle);
-
-		Position identity() const;
-		Position rotate_90() const;
-		Position rotate_180() const;
-		Position rotate_270() const;
-		// Reflect horizontal <-> y-axis, vertical <-> x-axis
-		Position reflect_h() const;
-		Position reflect_v() const;
-		// Transpose
-		Position reflect_tl() const;
-		Position reflect_tr() const;
-
-		Position move_right() const;
-
-#ifdef USE_X86_VECTORIZE
-		__m128i to_sse_bytes();	
-		static from_sse_bytes(__m128i bytes);
-#endif
-
-		char* to_string() const;
-		Position canonical() const;
-
-		bool operator==(const Position& b) const noexcept;
-		bool operator!=(const Position& b) const noexcept;
-
-		uint64_t lo_nibbles() const;
-		uint64_t hi_nibbles() const;*/
-	};
-
-	template <int count, bool v>
-	char* PositionV<count, v>::to_string() const {
-		char* ss = (char*)malloc(count * 200);
-		char* w = ss;
-
-		for (const Position& p : as_array()) {
-			char* ps = p.to_string();
-
-			w = stpcpy(stpcpy(w, ps), "\n");
-
-			free(ps);
+			return a;
 		}
 
-		return ss;
-	}
+		Position get_idx(int idx) const requires (!vectorize) {
+			assert(0 <= idx && idx < count);
+			return tiles[idx];
+		}
+
+		void set_idx(int idx, Position p) requires (!vectorize) {
+			assert(0 <= idx && idx < count);
+
+			tiles[idx] = p.tiles;
+		}
+
+		char* to_string() const {
+			char* ss = (char*)malloc(count * 200);
+			char* w = ss;
+
+			for (const Position& p : as_array()) {
+				char* ps = p.to_string();
+
+				w = stpcpy(stpcpy(w, ps), "\n");
+
+				free(ps);
+			}
+
+			return ss;
+		}
+
+#ifdef USE_X86_VECTORIZE
+		static void _get_next_positions_all_same(__m256i, Position* result2, Position* result4, int* count2, int* count4);
+#endif
+
+		// p required to be an array of all 0s. Order of output is guaranteed ... explain
+		static void _get_next_positions_all_same(std::array<Position, 4> pv, Position* result2, Position* result4, int* count2, int* count4) requires (!vectorize) {
+			Position p = pv[0];
+
+			Position pr = p.move_right();
+			for (int tile : { 2, 4 }) {
+				auto pv_p = (tile == 2) ? &result2 : &result4;
+
+				auto pv_c = (tile == 2) ? count2 : count4;
+
+				int insert_idx = 0;
+				for (int i = 0; i < 4; ++i) {
+					// Insert a 2 or 4 in each row at the specified column, if possible, and move
+					Position q = p;
+					bool allowed[4];
+
+					for (int j = 0; j < 4; ++j) {
+						if (q.get_tile(i * 4 + j)) {
+							q.set_tile(i * 4 + j, tile);
+							allowed[i] = true;
+						} else {
+							allowed[i] = false;
+						}
+					}
+
+					q.move_right();
+
+					for (int k = 0; k < 4; ++k) {
+						if (allowed[k]) {
+							uint64_t row_msk = 0xffff << (16 * k);
+
+							Position next = Position{ (q.tiles & row_msk) | (pr.tiles & ~row_msk) };
+							(*pv_p)[insert_idx++] = next;
+						}
+					}
+				}
+
+				*pv_c = insert_idx;
+			}
+		}
+
+		// result should be at least 30 in length and ideally aligned to a 64-byte boundary if using 512-bit vectors
+		static void get_next_positions(Position p, Position* result2, Position* result4, int* count2, int* count4) requires (!vectorize) {
+			if constexpr (vectorize) {
+				// saves a couple annoying shuffling operations if using vectors
+				// _get_next_positions_all_same(_mm256_set1_epi64(p.tiles), result2, result4, count2, count4);
+			} else {
+				std::array<Position, 4> pv;
+				for (int i = 0; i < 4; ++i) pv[i] = p;
+				_get_next_positions_all_same(pv, result2, result4, count2, count4);
+			}
+		}
+	};
+
 }

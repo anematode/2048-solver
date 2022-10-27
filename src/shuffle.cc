@@ -244,4 +244,57 @@ namespace Analysis {
 	}
 #endif
 
+#ifdef USE_X86_VECTORIZE
+	int movemask_epi16(__m128i v) {
+#ifdef USE_AVX512_VECTORIZE
+		return _mm_movepi16_mask(v);
+#else
+		int m = _mm_movemask_epi8(v);
+		return _pdep_u32(m, 0x5555);
+#endif
+	}
+
+	int movemask_epi16(__m256i v) {
+#ifdef USE_AVX512_VECTORIZE
+		return _mm256_movepi16_mask(v);
+#else
+		int m = _mm256_movemask_epi8(v);
+		return _pdep_u32(m, 0x5555'5555);
+#endif
+	}
+
+	int detect_4x16_dup(__m128i data) {
+		__m128i xchg = _mm_shuffle_epi32(data, 0b00'01'02'03);
+		__m128i cmp = _mm_cmpeq_epi16(data, xchg);
+
+		return movemask_epi16(cmp);
+	}
+
+	int detect_4x16_dup(__m256i data) {
+		__m256i xchg1 = _mm256_permute4x64_epi64(data, 0b10'01'00'11);
+		__m256i xchg2 = _mm256_permute4x64_epi64(data, 0b11'10'01'00);
+		__m256i xchg2 = _mm256_permute4x64_epi64(data, 0b00'11'10'01);
+
+		__m256i cmp = _mm256_cmpeq_epi16(data, xchg1);
+		__m256i cmp2 = _mm256_cmpeq_epi16(data, xchg2);
+		__m256i cmp3 = _mm256_cmpeq_epi16(data, xchg3);
+
+#ifdef USE_AVX512_VECTORIZE
+		cmp = _mm256_ternarylogic_epi32(cmp, cmp2, cmp3, 128);  // three-way AND
+#else
+		cmp = _mm256_and_si256(cmp, _mm256_and_si256(cmp2, cmp3));
+#endif
+
+		return movemask_epi16(cmp);
+	}
+
+#ifdef USE_AVX512_VECTORIZE
+	int detect_4x16_dup(__m512i data) {
+		assert(false);
+		return 0;
+	}
+#endif
+
+#endif
+
 };

@@ -6,6 +6,12 @@
 #include "../src/position.h"
 #include "helper.h"
 
+#ifndef CATCH_CONFIG_ENABLE_BENCHMARKING
+#define ANALYSIS_BENCH(mm) [&] () -> auto 
+#else
+#define ANALYSIS_BENCH(mm) BENCHMARK(mm)
+#endif
+
 using namespace Analysis;
 using namespace Analysis::Test;
 
@@ -43,7 +49,7 @@ TEST_CASE("Moves", "[moves]") {
 		REQUIRE(move_right(0x4004'0102) == 0x5000'1200);
 	}
 
-	BENCHMARK("Random position move right (10000 cases)") {
+	ANALYSIS_BENCH("Random position move right (10000 cases)") {
 		uint64_t sum = 0;
 
 		for (const Position& p : random_positions) {
@@ -52,6 +58,27 @@ TEST_CASE("Moves", "[moves]") {
 
 		return sum;
 	};
+
+}
+
+TEST_CASE("Random", "[random]") {
+	SECTION("Get next random") {
+		Rng rng{0};
+		
+		rng.skip(19);
+
+		Position p{0x002404201211458};
+
+		char* s = p.to_string();
+		puts(s);
+		free(s);
+
+		bool successful;
+		//s = p.move_right().to_string();
+		s = p.get_next_random(&rng, &successful).to_string();
+		puts(s);
+		free(s);
+	}
 }
 
 TEST_CASE("Canonical hashing", "[canonical]") {
@@ -84,7 +111,7 @@ TEST_CASE("Tile sum", "[tile sum]") {
 
 	}
 
-	BENCHMARK("Random position tile sum (10000 cases)") {
+	ANALYSIS_BENCH("Random position tile sum (10000 cases)") {
 		uint64_t sum = 0;
 
 		for (const Position& p : random_positions) {

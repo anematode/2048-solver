@@ -179,4 +179,40 @@ namespace Analysis {
 		return (repr == 0) ? 0 : (1U << repr);
 	}
 
+	Position Position::get_next_random(Rng* r, bool* successful) const {
+		uint8_t tile = (r->next() < (1U << 31) / 5) ? 2 : 1;
+
+		Position q = identity();
+		int tries = -20;
+		int idx;
+
+		for (idx = r->next() & 0xf; get_tile(idx) && (++tries); idx = r->next() & 0xf);
+
+		printf("PP %i\n", idx);
+
+		uint8_t idxs[15];
+		int write_i = 0;
+
+		if (!tries) {
+			for (uint8_t idx = 0; idx < 16; ++idx) {
+				if (!get_tile(idx)) {
+					idxs[write_i++] = idx;
+				}
+			}
+
+			if (write_i == 0) { 
+				*successful = false;
+				return *this;
+			}
+
+			assert(write_i != 0);
+			idx = r->next() % write_i;
+		}
+
+		q.set_tile(idx, tile);
+		*successful = true;
+
+		return q;
+	}
+
 }
