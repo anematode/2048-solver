@@ -295,14 +295,6 @@ namespace Analysis {
 	}
 #endif
 
-	// Randomly insert 1s and 2s into one 0 nibble in each 64-bit element of pos
-	__m256i random_insert(__m256i pos, Rng* rng) {
-		uint64_t pp[4];
-		__m256i v = _mm256_storeu_si256((__m256i*) pp, pos);
-
-		//random_insert_v(
-	}
-
 	uint64_t mask_zero_nibbles(uint64_t data) {
 		// Concept: repeated or to the right, followed by multiplication by 15
 
@@ -316,6 +308,7 @@ namespace Analysis {
 		return ~(data * 15);
 	}
 
+#ifdef USE_X86_VECTORIZE
 	__m128i mask_zero_nibbles(__m128i data) {
 		// split into hi half and low half, followed by 2x pcmpeqb and then ternlogd
 		const __m128i zero = _mm_setzero_si128();
@@ -345,4 +338,15 @@ namespace Analysis {
 		return _mm256_ternarylogic_epi32(low_nibbles, hi_half, lo_half, 172); // low_nibbles ? lo_half : hi_half
 #endif
 	}
+
+	// Randomly insert 1s and 2s into one 0 nibble in each 64-bit element of pos
+	__m256i random_insert(__m256i pos, Rng* rng) {
+		// TODO 
+		uint64_t pp[4];
+		__m256i v = _mm256_storeu_si256((__m256i*) pp, pos);
+
+		//random_insert_v(
+	}
+
+#endif // USE_X86_VECTORIZE
 };
