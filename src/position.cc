@@ -179,21 +179,16 @@ namespace Analysis {
 		return (repr == 0) ? 0 : (1U << repr);
 	}
 
+	// Slow. Tries to get a uniform distribution, though.
 	Position Position::get_next_random(Rng* r, bool* successful) const {
 		uint8_t tile = (r->next() < (1U << 31) / 5) ? 2 : 1;
 
 		Position q = identity();
-		int tries = -20;
-		int idx;
 
-		for (idx = r->next() & 0xf; get_tile(idx) && (++tries); idx = r->next() & 0xf);
-
-		printf("PP %i\n", idx);
-
+#ifndef __BMI2__
 		uint8_t idxs[15];
 		int write_i = 0;
 
-		if (!tries) {
 			for (uint8_t idx = 0; idx < 16; ++idx) {
 				if (!get_tile(idx)) {
 					idxs[write_i++] = idx;
@@ -207,10 +202,24 @@ namespace Analysis {
 
 			assert(write_i != 0);
 			idx = r->next() % write_i;
-		}
 
 		q.set_tile(idx, tile);
 		*successful = true;
+#else
+		// BMI2 enjoyer
+		uint64_t m = ~zero_mask_zero_nibbles(tiles);
+		uint64_t empty_idxs = _pext_u64(0xfedcba9876543210, m);
+		int count = _popcnt_u64(m) >> 2;
+
+		if (unlikely(!count)) {
+			*successful = false;
+		} else {
+			int random_zero_idx = empty_idxs >> (4 * (r->next() % count));
+
+			q.set_tile(random_zero_idx, tile);
+			*successful = true;
+		}
+#endif
 
 		return q;
 	}

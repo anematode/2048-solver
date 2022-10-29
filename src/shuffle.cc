@@ -295,6 +295,25 @@ namespace Analysis {
 	}
 #endif
 
-#endif
+	// Randomly insert 1s and 2s into one 0 nibble in each 64-bit element of pos
+	__m256i random_insert(__m256i pos, Rng* rng) {
+		uint64_t pp[4];
+		__m256i v = _mm256_storeu_si256((__m256i*) pp, pos);
+
+		//random_insert_v(
+	}
+
+	uint64_t zero_mask_zero_nibbles(uint64_t data) {
+		// Concept: repeated or to the right, followed by multiplication by 15
+
+		uint64_t hi_2 = data & 0xcccccccc'cccccccc;
+		uint64_t lo_2 = (data - hi_2) | (hi_2 >> 2);
+		
+		uint64_t hi_1 = data & 0x22222222'22222222;
+		uint64_t lo_1 = (data - hi_1) | (data >> 1);
+
+		// Ideally this will compile into (data << 4) - data, or perhaps some obscure LEA sequence
+		return data * 15;
+	}
 
 };
