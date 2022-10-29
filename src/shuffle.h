@@ -81,11 +81,12 @@ namespace Analysis {
 	int detect_4x16_dup(__m512i data);
 #endif
 	
-	// generate 4-bits zero for each zero nibble, and 4-bits one for each one nibble
-	uint64_t mask_nonzero_nibbles(uint64_t data);	
+	// generate 4-bits one for each zero nibble, and 4-bits zero for each nonzero nibble
+	uint64_t mask_zero_nibbles(uint64_t data);	
 
 #ifdef USE_X86_VECTORIZE
-	__m128i mask_nonzero_nibbles(
+	__m128i mask_zero_nibbles(__m128i, __m128i);
+	__m256i mask_zero_nibbles(__m256i, __m256i);
 #ifdef USE_AVX512_VECTORIZE
 
 #endif

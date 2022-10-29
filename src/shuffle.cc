@@ -303,7 +303,7 @@ namespace Analysis {
 		//random_insert_v(
 	}
 
-	uint64_t zero_mask_zero_nibbles(uint64_t data) {
+	uint64_t mask_zero_nibbles(uint64_t data) {
 		// Concept: repeated or to the right, followed by multiplication by 15
 
 		uint64_t hi_2 = data & 0xcccccccc'cccccccc;
@@ -312,8 +312,37 @@ namespace Analysis {
 		uint64_t hi_1 = data & 0x22222222'22222222;
 		uint64_t lo_1 = (data - hi_1) | (data >> 1);
 
-		// Ideally this will compile into (data << 4) - data, or perhaps some obscure LEA sequence
-		return data * 15;
+		// Ideally this will compile into ~((data << 4) - data), or perhaps some obscure LEA sequence
+		return ~(data * 15);
 	}
 
+	__m128i mask_zero_nibbles(__m128i data) {
+		// split into hi half and low half, followed by 2x pcmpeqb and then ternlogd
+		const __m128i zero = _mm_setzero_si128();
+		const __m128i low_nibbles = _mm_set1_epi8(0xf);
+
+		__m128i lo_half = _mm_and_si128(low_nibbles, data);
+		__m128i hi_half = _mm_andnot_si128(low_nibbles, data);
+
+#ifdef USE_AVX2_VECTORIZE
+		return _mm_or_si128(_mm_and_si128(lo_half, low_nibbles), _mm_andnot_si128(low_nibbles, hi_half));
+#else
+		return _mm_ternarylogic_epi32(low_nibbles, hi_half, lo_half, 172); // low_nibbles ? lo_half : hi_half
+#endif
+	}
+
+	__m256i mask_zero_nibbles(__m256i data) {
+		// split into hi half and low half, followed by 2x pcmpeqb and then ternlogd
+		const __m256i zero = _mm256_setzero_si128();
+		const __m256i low_nibbles = _mm256_set1_epi8(0xf);
+
+		__m256i lo_half = _mm256_and_si128(low_nibbles, data);
+		__m256i hi_half = _mm256_andnot_si128(low_nibbles, data);
+
+#ifdef USE_AVX2_VECTORIZE
+		return _mm256_or_si128(_mm256_and_si128(lo_half, low_nibbles), _mm256_andnot_si128(low_nibbles, hi_half));
+#else
+		return _mm256_ternarylogic_epi32(low_nibbles, hi_half, lo_half, 172); // low_nibbles ? lo_half : hi_half
+#endif
+	}
 };
