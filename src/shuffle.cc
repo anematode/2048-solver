@@ -295,17 +295,69 @@ namespace Analysis {
 	}
 #endif
 
-	uint64_t mask_zero_nibbles(uint64_t data) {
-		// Concept: repeated or to the right, followed by multiplication by 15
+#endif // USE_X86_VECTORIZE
+
+	uint64_t mask_nonzero_nibbles_to_ones(uint64_t data) {
+		// Concept: repeated or to the right
 
 		uint64_t hi_2 = data & 0xcccccccc'cccccccc;
 		uint64_t lo_2 = (data - hi_2) | (hi_2 >> 2);
 		
-		uint64_t hi_1 = data & 0x22222222'22222222;
-		uint64_t lo_1 = (data - hi_1) | (data >> 1);
+		uint64_t hi_1 = lo_2 & 0x22222222'22222222;
 
-		// Ideally this will compile into ~((data << 4) - data), or perhaps some obscure LEA sequence
-		return ~(data * 15);
+		return (lo_2 - hi_1) | (hi_1 >> 1);
+	}
+
+	uint64_t mask_zero_nibbles(uint64_t data) {
+		return ~(mask_nonzero_nibbles_to_ones(data) * 15);
+	}
+
+	int count_tiles(uint64_t data) {
+		return __builtin_popcountll(mask_nonzero_nibbles_to_ones(data));
+	}
+
+	int count_empty(uint64_t data) {
+		return 16 - count_tiles(data);
+	}
+
+	// Perhaps useless, but good for testing: Put number of each tile in each row
+	uint64_t count_rows(uint64_t data) {
+		uint64_t m = ~mask_zero_nibbles(data);
+
+		auto pc = [&] (uint64_t a) { return __builtin_popcountll(a & 0xffff); };
+
+		return (((uint64_t)pc(m >> 48) << 48) +
+			((uint64_t)pc(m >> 32) << 32) +
+			((uint64_t)pc(m >> 16) << 16) +
+			pc(m)) >> 2;
+	}
+
+	uint8_t nibble_max(uint64_t data) {
+
+	}
+
+	uint64_t nibble_row_max(uint64_t data) {
+
+	}
+
+	// Compute the maximum nibble in each row, and the maximum nibble overall
+	void nibble_maxes(uint64_t data, uint64_t* nibble_row_max, uint8_t* nibble_max) {
+
+	}
+
+	// sum of the tiles -- as powers of two, not scalar. This will monotonically increase by
+	// 2 or 4 each time a move is played.
+	uint32_t tile_sum(uint64_t data) {
+		uint32_t s = 0;
+		for (int i = 0; i < 16; ++i) {
+			uint32_t t = data & 0xf;
+
+			if (t) s += 1 << t;
+
+			data >>= 4;
+		}
+
+		return s;
 	}
 
 #ifdef USE_X86_VECTORIZE
@@ -339,14 +391,52 @@ namespace Analysis {
 #endif
 	}
 
-	// Randomly insert 1s and 2s into one 0 nibble in each 64-bit element of pos
-	__m256i random_insert(__m256i pos, Rng* rng) {
-		// TODO 
-		uint64_t pp[4];
-		__m256i v = _mm256_storeu_si256((__m256i*) pp, pos);
-
-		//random_insert_v(
+	__m128i not_si128(__m128i a) {
+#ifdef USE_AVX2_VECTORIZE
+		return _mm_xor_si128(_mm_set1_epi32(1), a);
+#else
+		return _mm_ternarylogic_epi32(a, a, a, 0x55);
+#endif
 	}
+
+	__m256i not_si256(__m256i a) {
+#ifdef USE_AVX2_VECTORIZE	
+		return _mm256_xor_si256(_mm256_set1_epi32(1), a);
+#else
+		return _mm256_ternarylogic_epi32(a, a, a, 0x55);
+#endif
+	}
+
+	// Count, in each 64-bit element, the number of nonzero nibbles
+	__m128i count_tiles(__m128i data) {
+#if defined(USE_AVX512_VECTORIZE) && defined(__AVX512VPOPCNTDQ__)
+		return _mm_srli_epi32(_mm_popcnt_epi64(not_si128(mask_zero_nibbles(data))), 2);
+#else // USE_AVX2_VECTORIZE
+		// No vectorized popcount, so split into 64-bit elements and enjoy
+		uint64_t d[2];
+		_mm_storeu_si128((__m128i*) d, data);
+
+		d[0] = count_tiles(d[0]);
+		d[1] = count_tiles(d[1]);
+
+		return _mm_loadu_si128((const __m128i*) d);
+#endif
+	}
+
+	__m256i count_tiles(__m256i data) {
+#if defined(USE_AVX512_VECTORIZE) && defined(__AVX512VPOPCNTDQ__)
+		return _mm256_srli_epi32(_mm256_popcnt_epi64(not_si256(mask_zero_nibbles(data))), 2); // popcnt, then divide by 4
+#else // USE_AVX2_VECTORIZE
+		uint64_t d[4];
+		_mm256_storeu_si256((__m256i*) d, data);
+
+		for (int i = 0; i < 4; ++i)
+			d[i] = count_tiles(d[i]);
+
+		return _mm256_loadu_si256((const __m256i*) d);
+#endif
+	}
+
 
 #endif // USE_X86_VECTORIZE
 };

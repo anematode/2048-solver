@@ -122,6 +122,80 @@ TEST_CASE("Tile sum", "[tile sum]") {
 	};
 }
 
+TEST_CASE("Nibble ops", "[nibble ops]") {
+	uint64_t tc[2][2] = {
+		{0x0000f00020003004, 0xffff0fff0fff0ff0},
+		{0x0000f00ff030241f, 0xffff0ff00f0f0000}
+	};
+
+	uint64_t tc2[4][2] = {
+		{ 0x0123456789abcdef, 15 },
+		{ 0x0102030405060707, 8 },
+		{ 0x0, 0},
+		{ 0x1500000000402, 4 }
+	};
+
+	uint64_t tc3[4][2] = {	
+		{ 0x0123456789abcdef, 0x0003000400040004 },
+		{ 0x0102030405060707, 0x0002000200020002 },
+		{ 0x0, 0 },
+		{ 0x1500000000402, 0x0001000100000002 }
+	};
+
+	uint64_t tc4[4][2] = {
+		{ 0x0, 0 },
+		{ 0x10000000000, 1 },
+		{ 0xf000000f000, 0xf },
+		{ 0x012340987baa0, 0xa }
+	};
+
+	uint64_t tc5[4][2] = {
+		{ 0x0, 0 },
+		{ 0x123456789, 0x3fe },
+		{ 0x22241100042ff, 0x10034 },
+		{ 0xffffffffffffffff, (1 << 15) * 16 }
+	};
+
+	SECTION("scalar cmp") {
+		for (uint64_t *a : tc) {
+			REQUIRE(mask_zero_nibbles(a[0]) == a[1]);
+		}
+	}
+
+	SECTION("scalar count") {
+		for (uint64_t *a : tc2) {
+			REQUIRE(count_tiles(a[0]) == a[1]);
+		}
+	}
+
+	SECTION("scalar row count") {
+		for (uint64_t *a : tc3) {
+			REQUIRE(count_rows(a[0]) == a[1]);
+		}
+	}
+
+	/*SECTION("nibble max") {
+		for (uint64_t *a : tc4) {
+			REQUIRE(nibble_max(a[0]) == a[1]);
+		}
+	}*/
+
+	SECTION("tile sum") {
+		for (uint64_t *a : tc5) {
+			REQUIRE(tile_sum(a[0]) == a[1]);
+		}
+	}
+
+#ifdef USE_X86_VECTORIZE
+	SECTION("x86 cmp") {
+		for (uint64_t *a : tc) {
+			REQUIRE(_mm_cvtsi128_si64x(mask_zero_nibbles(_mm_cvtsi64_si128(a[0]))) == a[1]);
+			REQUIRE(_mm256_cvtsi256_si64x(mask_zero_nibbles(_mm256_cvtsi64_si256(a[0]))) == a[1]);
+		}
+	}
+#endif
+}
+
 
 #if 0
 uint64_t test_canonical_2() {

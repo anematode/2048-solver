@@ -53,5 +53,5 @@ namespace Analysis {
 			for (int i = 0; i < cnt; ++i) next();
 		}
 #endif
-	}
+	};
 }

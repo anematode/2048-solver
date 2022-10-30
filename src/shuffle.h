@@ -84,9 +84,25 @@ namespace Analysis {
 	// generate 4-bits one for each zero nibble, and 4-bits zero for each nonzero nibble
 	uint64_t mask_zero_nibbles(uint64_t data);	
 
+	// Count number of nonzero/zero nibbles to int
+	int count_tiles(uint64_t data);
+	int count_empty(uint64_t data);
+
+	uint64_t count_rows(uint64_t data);
+	uint8_t nibble_max(uint64_t data);
+	
+	// sum of the tiles -- as powers of two, not scalar
+	uint32_t tile_sum(uint64_t data);
+
 #ifdef USE_X86_VECTORIZE
 	__m128i mask_zero_nibbles(__m128i, __m128i);
 	__m256i mask_zero_nibbles(__m256i, __m256i);
+
+	__m128i count_tiles(__m128i);
+	__m256i count_tiles(__m256i);
+
+	__m128i count_empty(__m128i);
+	__m256i count_empty(__m256i);
 #ifdef USE_AVX512_VECTORIZE
 
 #endif

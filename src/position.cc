@@ -189,19 +189,19 @@ namespace Analysis {
 		uint8_t idxs[15];
 		int write_i = 0;
 
-			for (uint8_t idx = 0; idx < 16; ++idx) {
-				if (!get_tile(idx)) {
-					idxs[write_i++] = idx;
-				}
+		for (uint8_t idx = 0; idx < 16; ++idx) {
+			if (!get_tile(idx)) {
+				idxs[write_i++] = idx;
 			}
+		}
 
-			if (write_i == 0) { 
-				*successful = false;
-				return *this;
-			}
+		if (write_i == 0) { 
+			*successful = false;
+			return *this;
+		}
 
-			assert(write_i != 0);
-			idx = r->next() % write_i;
+		assert(write_i != 0);
+		int idx = r->next() % write_i;
 
 		q.set_tile(idx, tile);
 		*successful = true;
