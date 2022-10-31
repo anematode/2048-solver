@@ -1,6 +1,7 @@
 #include "shuffle.h"
 #include "defs.h"
 
+
 // Convention: (a & (0xf << (4 * i))) >> (4 * i) is the ith nibble of a (i.e., lowest-significant is 0)
 namespace Analysis {
 
@@ -320,6 +321,7 @@ namespace Analysis {
 		return 16 - count_tiles(data);
 	}
 
+
 	// Perhaps useless, but good for testing: Put number of each tile in each row
 	uint64_t count_rows(uint64_t data) {
 		uint64_t m = ~mask_zero_nibbles(data);
@@ -333,16 +335,18 @@ namespace Analysis {
 	}
 
 	uint8_t nibble_max(uint64_t data) {
-
+		assert(0);
+		return 0;
 	}
 
 	uint64_t nibble_row_max(uint64_t data) {
-
+		assert(0);
+		return 0;
 	}
 
 	// Compute the maximum nibble in each row, and the maximum nibble overall
 	void nibble_maxes(uint64_t data, uint64_t* nibble_row_max, uint8_t* nibble_max) {
-
+		assert(0);
 	}
 
 	// sum of the tiles -- as powers of two, not scalar. This will monotonically increase by
@@ -437,6 +441,56 @@ namespace Analysis {
 #endif
 	}
 
-
 #endif // USE_X86_VECTORIZE
+	void grab_empty_idxs(uint64_t data, uint8_t* idxs, int* count) {
+		int write_i = 0;
+
+		for (uint8_t idx = 0; idx < 16; ++idx) {
+			if (!(data & (0xfULL << (4 * idx)))) {
+				idxs[write_i++] = idx;
+			}
+		}
+
+		*count = write_i;
+	}
+
+	void dedup_positions_consecutive(const uint64_t* __restrict__ positions, int count, uint64_t* __restrict__ results, int* result_freqs, int* result_count) {
+		if (unlikely(count == 0)) {
+			*result_count = 0;
+			return;
+		}
+
+		uint64_t previous = positions[0];
+		results[0] = previous;
+		result_freqs[0] = 1;
+
+		int write_i = 0;
+
+		for (int i = 1; i < count; ++i) {
+			if (positions[i] != previous) {
+				write_i++;
+				results[write_i] = positions[i];
+				result_freqs[write_i] = 1;
+				previous = positions[i];
+			} else {
+				result_freqs[write_i]++;
+			}
+		}
+
+		*result_count = write_i + 1;
+	}
+
+	bool is_valid_gen_tile(uint64_t generated, uint64_t base) {
+		uint64_t kk = generated ^ base;
+		if (unlikely(kk == 0)) return false;
+
+		int tz = __builtin_ctzll(kk);
+		int tzr = tz / 4 * 4;
+
+		if (kk != 1ULL << tzr && kk != 2ULL << tzr) {
+			return false;	
+		}
+
+		return !(base & (0xfULL << tzr));
+	}
 };

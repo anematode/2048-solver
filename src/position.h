@@ -76,7 +76,13 @@ namespace Analysis {
 		uint64_t hi_nibbles() const;
 
 		// Insert a random 2 or 4
-		Position get_next_random(Rng* r, bool* successful) const;
+		Position get_next_random(bool* successful, Rng* rng=&thread_rng) const;
+		void gen_next(Position* pp2, Position* pp4,
+				int* pp2p, int* pp4p, int* pp2c, int* pp4c,
+				int* pp2allowed, int*pp4allowed, int* pp2disallowed, int* pp4disallowed);
+		void gen_new_tiles(Position* pp2, Position* pp4, int* pp2c, int* pp4c);
+		
+		static Position starting_position(int seed=-1);
 	};
 
 	template <int count>

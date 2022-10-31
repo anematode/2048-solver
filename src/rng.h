@@ -54,4 +54,10 @@ namespace Analysis {
 		}
 #endif
 	};
+
+	inline thread_local Rng thread_rng{};
+
+#ifdef USE_X86_VECTORIZE
+	inline thread_local FastRng thread_fast_rng{};
+#endif
 }

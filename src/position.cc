@@ -179,29 +179,23 @@ namespace Analysis {
 		return (repr == 0) ? 0 : (1U << repr);
 	}
 
-	// Slow. Tries to get a uniform distribution, though.
-	Position Position::get_next_random(Rng* r, bool* successful) const {
+	// Randomly insert a 2 or 4 into the current position, and do not move it
+	Position Position::get_next_random(bool* successful, Rng* r) const {
 		uint8_t tile = (r->next() < (1U << 31) / 5) ? 2 : 1;
 
 		Position q = identity();
 
 #ifndef __BMI2__
 		uint8_t idxs[15];
-		int write_i = 0;
+		int count;
+		grab_empty_idxs(tiles, idxs, &count);
 
-		for (uint8_t idx = 0; idx < 16; ++idx) {
-			if (!get_tile(idx)) {
-				idxs[write_i++] = idx;
-			}
-		}
-
-		if (write_i == 0) { 
+		if (unlikely(count == 0)) { 
 			*successful = false;
 			return *this;
 		}
 
-		assert(write_i != 0);
-		int idx = r->next() % write_i;
+		int idx = idxs[r->next() % count];
 
 		q.set_tile(idx, tile);
 		*successful = true;
@@ -224,4 +218,64 @@ namespace Analysis {
 		return q;
 	}
 
+	// Generate a random starting position, optionally with some "seed"; a seed of -1 indicates a random one should be chosen.
+	// By iterating all seeds from 0 to 31 inclusive, all potential starting positions are created. Note that a "starting position"
+	// actually constitutes a base position, rather than a position including two random tiles. Therefore, a starting 2048 position
+	// contains exactly one tile. The position is not guaranteed to be canonical.
+	Position Position::starting_position(int seed) {
+		int idx, tile;
+
+		if (seed == -1) {
+			idx = thread_rng.next() % 16;
+			tile = (thread_rng.next() % 10 == 0) ? 4 : 2;
+		} else {
+			seed &= 31;
+			idx = seed & 0xf;
+			tile = seed >> 4;
+		}
+
+		return Position{}.set_tile(idx, tile);
+	}
+
+	void Position::gen_next(Position* pp2, Position* pp4,
+				int* pp2p, int* pp4p, int* pp2c, int* pp4c,
+				int* pp2allowed, int*pp4allowed, int* pp2disallowed, int* pp4disallowed) {
+
+
+	}
+
+	void Position::gen_new_tiles(Position* pp2, Position* pp4, int* pp2c, int* pp4c) {
+		// This is rather tricky. We first generate all indices where a 2 or 4 can be inserted, then compute all such positions,
+		// store them, and remove duplicates.
+		uint8_t idxs[16];
+		int count;
+		grab_empty_idxs(tiles, idxs, &count);
+
+		*pp2c = *pp4c = 0;
+
+
+		for (int i = 0; i < count; ++i) {
+			uint8_t idx = idxs[i];
+
+			// Insert a 2 and a 4
+			Position q = identity();
+			q.set_tile(idx, 1);
+
+			*pp2++ = q;
+			*pp2c += 1;
+
+			q.set_tile(idx, 2);
+
+			*pp4++ = q;
+			*pp4c += 1;
+		}
+	}
+#if 0
+	static void canonicalize(__restrict__ uint64_t* input, 
+
+	// Canonicalize and deduplicate, recording frequencies of each entry. That is, take every entry, convert it to canonical form, remove
+	// duplicates, and record the number of each duplicate. The output guarantees that the first entry in each
+	static void canonicalize_dedup(__restrict__ uint64_t* input, int input_len, __restrict__ uint64_t* output, int* output_freq, int* count) {
+
+#endif
 }

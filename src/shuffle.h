@@ -94,6 +94,16 @@ namespace Analysis {
 	// sum of the tiles -- as powers of two, not scalar
 	uint32_t tile_sum(uint64_t data);
 
+	// Create an array of all empty indices in a position
+	void grab_empty_idxs(uint64_t data, uint8_t* idxs, int* count);
+
+	// Remove duplicate positions ON THE ASSUMPTION that any duplicates are necessarily contiguous/consecutive. Write the frequencies
+	// of each position to result_freqs
+	void dedup_positions_consecutive(const uint64_t* __restrict__ positions, int count, uint64_t* __restrict__ results, int* result_freqs, int* result_count);
+
+	// Whether generated is a valid next-tile position from the base position
+	bool is_valid_gen_tile(uint64_t generated, uint64_t base);
+
 #ifdef USE_X86_VECTORIZE
 	__m128i mask_zero_nibbles(__m128i, __m128i);
 	__m256i mask_zero_nibbles(__m256i, __m256i);

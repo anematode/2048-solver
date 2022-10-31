@@ -61,23 +61,99 @@ TEST_CASE("Moves", "[moves]") {
 
 }
 
+TEST_CASE("Gen next", "[gen next]") {
+	// Given a base position, generate all possible next base positions when moving right, optionally with a probability attached to them.
+	// That is, compute all possible next base positions after a move right has been committed. There are also four extra values: The
+	// EV of cases where a 2-move is allowed, where a 2-move is disallowed, and analogously for 4-moves.
+	std::array<Position, 32> pp2;    // unique, potential next positions containing a 2
+	std::array<Position, 32> pp4;
+	std::array<uint8_t, 32> pp2p;	 // integer probability (# cases * 9 for 2s, # cases * 1 for 4s)
+	std::array<uint8_t, 32> pp4p;
+
+	int pp2c, pp4c;  // count of each unique positions written to the arrays pp2 and pp4
+	int pp2allowed, pp4allowed;
+	int pp2disallowed, pp4disallowed;
+
+	SECTION("Gen next") {
+		Position p { 0x0 };
+
+		//p.gen_next(pp2, pp4, pp2p, pp4p, &pp2c, &pp4c, &pp2allowed, &pp4allowed, &pp2disallowed, &pp4disallowed);
+
+	}
+}
+
+TEST_CASE("Deduplicate entries", "[dedup entries]") {
+	SECTION("Scalar") {
+		uint64_t test[] = { 0x0, 0x0, 0x1, 0x5, 0x2, 0x71172, 0x71172, 0x71172, 0x3, 0x51 };
+		uint64_t correct_result[] = { 0x0, 0x1, 0x5, 0x2, 0x71172, 0x3, 0x51 };
+		int correct_freqs[] = { 2, 1, 1, 1, 3, 1, 1 };
+
+		uint64_t result[sizeof(correct_result) / sizeof(uint64_t)];
+		int freqs[sizeof(correct_freqs) / sizeof(int)];
+
+		int result_count;
+
+		dedup_positions_consecutive(test, 10, result, freqs, &result_count);
+
+		REQUIRE(result_count == 7);
+		REQUIRE(memcmp(correct_result, result, sizeof(correct_result)) == 0);
+		REQUIRE(memcmp(correct_freqs, freqs, sizeof(correct_result)) == 0);
+	}
+}
+
+TEST_CASE("Gen new tiles", "[gen new]") {
+	SECTION("Scalar") {
+		Position p{0x5020000012520};
+
+		Position new2[16];
+		Position new4[16];
+
+		int ii[10] = {
+			0, 5, 6, 7, 8, 9, 11, 13, 14, 15
+		};		
+
+		int new2c, new4c;
+		p.gen_new_tiles(new2, new4, &new2c, &new4c);
+
+		REQUIRE(new2c == 10);
+		REQUIRE(new4c == 10);
+
+		// Tiles should be eagerly placed into the lowest index
+		for (int i = 0; i < new2c; ++i) {
+			REQUIRE(p.identity().set_tile(ii[i], 1) == new2[i]);
+			REQUIRE(p.identity().set_tile(ii[i], 2) == new4[i]);
+		}
+	}
+
+	/*SECTION("Scalar move dedup") {
+		// Get all next 
+		Position p{
+	}*/
+}
+
 TEST_CASE("Random", "[random]") {
 	SECTION("Get next random") {
-		Rng rng{0};
-		
-		rng.skip(19);
-
-		Position p{0x002404201211458};
-
-		char* s = p.to_string();
-		puts(s);
-		free(s);
+		Position p{0x040241111};
+		 /*
+		Position new2[16], new4[16];
+		int new2c, new4c;
+		p.gen_new_tiles(new2, new4, &new2c, &new4c);*/
 
 		bool successful;
-		//s = p.move_right().to_string();
-		s = p.get_next_random(&rng, &successful).to_string();
-		puts(s);
-		free(s);
+		Position next = p.get_next_random(&successful);
+
+		REQUIRE(is_valid_gen_tile(next.tiles, p.tiles));
+		REQUIRE(successful);
+	}
+
+	SECTION("Get next random with full board") {
+		Position p{0x1234123412341234};
+
+		bool successful;
+		Position next = p.get_next_random(&successful);
+
+		REQUIRE(!is_valid_gen_tile(next.tiles, p.tiles));
+		REQUIRE(!successful);
 	}
 }
 
