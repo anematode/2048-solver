@@ -1,16 +1,32 @@
 #pragma once
 
 #include <cstdint>
+#include <ctime>
 
 namespace Analysis {
+
+	inline uint64_t seed_to_seed(uint64_t seed) {
+		if (seed == -1) {
+#ifdef USE_X86_VECTORIZE
+			uint64_t r = 0;
+			_rdrand64_step(&r);
+			return r;
+#else
+			return time(NULL);
+#endif
+		} else {
+			return seed;
+		}
+	}
+
 	class Rng {
 		uint64_t _state = 0;
 
 		public:
-		Rng(uint64_t seed=0) : _state(seed) {}
+		Rng(uint64_t seed=-1) : _state(seed_to_seed(seed)) {}
 
 		inline uint32_t next() noexcept {
-			_state = _state * 120381822 + 4018501;
+			_state = _state * 1203818221052081ULL + 4018501;
 
 			return (uint32_t)(_state >> 19);
 		}
@@ -27,8 +43,8 @@ namespace Analysis {
 
 		__m128i real_state = _mm_setzero_si128();
 
-		FastRng(uint64_t seed=0) {
-			real_state = _mm_set1_epi64x(seed);
+		FastRng(uint64_t seed=-1) {
+			real_state = _mm_set1_epi64x(seed_to_seed(seed));
 		}
 
 		inline __m128i next_v() noexcept {

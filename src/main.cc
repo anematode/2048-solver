@@ -1,31 +1,58 @@
 #include "defs.h"
 #include "position.h"
 
-int main() {
+#include <unordered_set>
 	using namespace Analysis;
 
-	print_features();
-		Rng rng{0};
-		
-		rng.skip(19);
+int play_dumb_game() {
+	bool s;
 
-		Position p{0x002404201211458};
+	int cnt = 0;
+	Position p = Position::start();
 
+	while (1) {
+		++cnt;
+		int i = 0;
+		for (; i < 4; ++i) {
+			p = p.move_right(&s);
+			if (s) {
+				break;
+			}
+
+			p = p.rotate_90();
+		}
+
+		if (i == 4) // oof!
+			break;
+
+		p = p.get_next_random(&s);
+		// puts(p.to_string());
+	}
+
+	//puts(p.to_string());
+	return cnt;
+}
+
+int main() {
+
+	/*std::unordered_set<Position> set;
+
+	auto starts = Position::get_all_starting();
+	for (auto& s : starts) {
+		set.insert(s);
+	}
+
+	decltype(set) next;
+
+	for (auto& p : set) {
 		char* s = p.to_string();
 		puts(s);
 		free(s);
+	}*/
 
-		bool successful;
-		//s = p.move_right().to_string();
-		s = p.get_next_random(&successful).to_string();
-		puts(s);
-		free(s);
+	uint64_t total = 0;
 
-	/*PositionV<2> p {
-		{ 0, 0 }
-	};
+	for (int i = 0; i < 10000000; ++i) total += play_dumb_game();
 
-	p.set_idx(1, 0x101011);
-
-	printf("%s", p.to_string());*/
+	printf("Total moves: %" PRIu64 "\n", total);
 }

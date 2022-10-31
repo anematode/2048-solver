@@ -56,10 +56,10 @@ namespace Analysis {
 		Position reflect_tl() const;
 		Position reflect_tr() const;
 
-		Position move_right() const;
-		Position move_up() const;
-		Position move_left() const;
-		Position move_down() const;
+		Position move_right(bool* successful) const;
+		Position move_up(bool* successful) const;
+		Position move_left(bool* successful) const;
+		Position move_down(bool* successful) const;
 
 #ifdef USE_X86_VECTORIZE
 		__m128i to_sse_bytes();	
@@ -82,7 +82,8 @@ namespace Analysis {
 				int* pp2allowed, int*pp4allowed, int* pp2disallowed, int* pp4disallowed);
 		void gen_new_tiles(Position* pp2, Position* pp4, int* pp2c, int* pp4c);
 		
-		static Position starting_position(int seed=-1);
+		static Position start(int seed=-1);
+		static std::array<Position, 32> get_all_starting();	
 	};
 
 	template <int count>
@@ -239,6 +240,8 @@ namespace Analysis {
 			return ss;
 		}
 
+
+#if 0
 #ifdef USE_X86_VECTORIZE
 		static void _get_next_positions_all_same(__m256i, Position* result2, Position* result4, int* count2, int* count4);
 #endif
@@ -295,6 +298,16 @@ namespace Analysis {
 				_get_next_positions_all_same(pv, result2, result4, count2, count4);
 			}
 		}
+#endif
 	};
 
 }
+
+		namespace std {
+		    template <>
+		    struct hash<Analysis::Position> {
+			size_t operator ()(Analysis::Position p) const {
+			    return p.tiles;
+			}
+		    };
+		}

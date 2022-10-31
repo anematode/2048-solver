@@ -53,7 +53,8 @@ TEST_CASE("Moves", "[moves]") {
 		uint64_t sum = 0;
 
 		for (const Position& p : random_positions) {
-			sum = p.move_right().tiles;	
+			bool s;
+			sum = p.move_right(&s).tiles;	
 		}
 
 		return sum;

@@ -64,6 +64,13 @@ namespace Analysis {
 		return sum;
 	}
 
+	std::array<Position, 32> Position::get_all_starting() {
+		std::array<Position, 32> a;
+		for (int i = 0; i < 32; ++i) a[i] = Position::start(i);
+
+		return a;
+	}
+
 #if 0 //USE_VEC && defined(__BMI2__)
 	__m128i _to_sse_bytes() const {
 		return _mm_set_epi64x(_pdep_u64(tiles >> 32, LO_NIBBLES), _pdep_u64(tiles, LO_NIBBLES));
@@ -116,7 +123,7 @@ namespace Analysis {
 		return Position{ shuffle_nibbles(tiles, constants::reflect_tl) };
 	}
 	Position Position::reflect_tr() const {
-		return Position{ shuffle_nibbles(tiles, constants::reflect_tr) };
+		return Position{ shuffle_nibbles(tiles, constants::reflect_tr) }; 
 	}
 	Position Position::reflect_v() const {
 		return Position{ shuffle_nibbles(tiles, constants::reflect_v) };
@@ -125,8 +132,29 @@ namespace Analysis {
 		return Position{ shuffle_nibbles(tiles, constants::reflect_h) };
 	}
 
-	Position Position::move_right() const {
-		return Position{ ::Analysis::move_right(tiles) };
+	Position Position::move_right(bool* successful) const {
+		uint64_t new_tiles = ::Analysis::move_right(tiles);
+		*successful = new_tiles != tiles;
+
+		return Position{ new_tiles };
+	}
+
+	Position Position::move_left(bool* successful) const {
+		Position p = rotate_180();
+		p = p.move_right(successful);
+		return p.rotate_180();
+	}
+
+	Position Position::move_up(bool* successful) const {
+		Position p = rotate_270();
+		p = p.move_right(successful);
+		return p.rotate_90();
+	}
+
+	Position Position::move_down(bool* successful) const {
+		Position p = rotate_90();
+		p = p.move_right(successful);
+		return p.rotate_270();
 	}
 
 
@@ -222,16 +250,16 @@ namespace Analysis {
 	// By iterating all seeds from 0 to 31 inclusive, all potential starting positions are created. Note that a "starting position"
 	// actually constitutes a base position, rather than a position including two random tiles. Therefore, a starting 2048 position
 	// contains exactly one tile. The position is not guaranteed to be canonical.
-	Position Position::starting_position(int seed) {
+	Position Position::start(int seed) {
 		int idx, tile;
 
 		if (seed == -1) {
 			idx = thread_rng.next() % 16;
-			tile = (thread_rng.next() % 10 == 0) ? 4 : 2;
+			tile = (thread_rng.next() % 10 == 0) ? 2 : 1;
 		} else {
 			seed &= 31;
 			idx = seed & 0xf;
-			tile = seed >> 4;
+			tile = (seed >> 4) + 1;
 		}
 
 		return Position{}.set_tile(idx, tile);
