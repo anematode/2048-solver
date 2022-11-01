@@ -15,6 +15,20 @@
 using namespace Analysis;
 using namespace Analysis::Test;
 
+#ifdef USE_X86_VECTORIZE
+
+#define _m128_to_64(a) (_mm_cvtsi128_si64x(a))
+#define _m256_to_64(a) (_m128_to_64(_mm256_castsi256_si128(a)))
+
+#define _64_to_m128(a) (_mm_cvtsi64x_si128(a))
+#define _64_to_m256(a) (_mm256_castsi128_si256(_mm_cvtsi64x_si128(a)))
+
+#ifdef USE_AVX512_VECTORIZE
+#define _m512_to_64(a) (_m128_to_64(_mm512_castsi512_si128(a)))
+#define _64_to_m512(a) (_mm512_castsi128_si512(_mm_cvtsi64x_si128(a)))
+#endif
+#endif
+
 TEST_CASE("Nibble shuffle is correct", "[nibble shuffle]") {
 	SECTION("Fixed tests") {
 		uint64_t r1 = shuffle_nibbles(0xfedcba9876543210, 0xaa025411fe034102);
@@ -41,12 +55,19 @@ TEST_CASE("Nibble shuffle is correct", "[nibble shuffle]") {
 }
 
 TEST_CASE("Moves", "[moves]") {
+	uint64_t tc[5][2] = {
+		{ 0, 0 },
+		{ 0x0100, 0x1000 },
+		{ 0x0022'0100, 0x3000'1000 },
+		{ 0x2222'0100, 0x3300'1000 },
+		{ 0x4004'0102, 0x5000'1200 }
+
+	};
 	SECTION("Test move LUT") {
-		REQUIRE(move_right(0) == 0);
-		REQUIRE(move_right(0x0100) == 0x1000);
-		REQUIRE(move_right(0x0022'0100) == 0x3000'1000);
-		REQUIRE(move_right(0x2222'0100) == 0x3300'1000);
-		REQUIRE(move_right(0x4004'0102) == 0x5000'1200);
+		for (uint64_t* k : tc) {
+			CAPTURE(k[0], k[1]);
+			REQUIRE(move_right(k[0]) == k[1]);
+		}
 	}
 
 	ANALYSIS_BENCH("Random position move right (10000 cases)") {
@@ -59,6 +80,18 @@ TEST_CASE("Moves", "[moves]") {
 
 		return sum;
 	};
+
+#ifdef USE_X86_VECTORIZE
+	SECTION("Test x86 move") {
+		for (uint64_t* k : tc) {
+			CAPTURE(k[0], k[1]);
+
+			REQUIRE(_mm_cvtsi128_si64x(move_right(_mm_cvtsi64x_si128(k[0]))) == k[1]);
+			REQUIRE(_mm_cvtsi128_si64x(move_right(_mm_cvtsi64x_si128(k[0]))) == k[1]);
+			REQUIRE(_mm_cvtsi128_si64x(move_right(_mm_cvtsi64x_si128(k[0]))) == k[1]);
+		}
+	}
+#endif
 
 }
 
@@ -264,7 +297,6 @@ TEST_CASE("Nibble ops", "[nibble ops]") {
 	}
 
 #ifdef USE_X86_VECTORIZE
-
 	SECTION("x86 cmp") {
 		for (uint64_t *a : tc) {
 			REQUIRE(_mm_cvtsi128_si64x(mask_zero_nibbles(_mm_cvtsi64_si128(a[0]))) == a[1]);
