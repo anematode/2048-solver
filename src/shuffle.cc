@@ -441,6 +441,21 @@ namespace Analysis {
 #endif
 	}
 
+	uint8_t cmp64_to_mask(__m128i a, __m128i b) {
+		return _mm_movemask_pd(_mm_castsi128_pd(_mm_cmpeq_epi64(a, b)));
+	}
+
+	uint8_t cmp64_to_mask(__m256i a, __m256i b) {
+		return _mm256_movemask_pd(_mm256_castsi256_pd(_mm256_cmpeq_epi64(a, b)));
+	}
+
+#ifdef USE_AVX512_VECTORIZE
+	uint8_t cmp64_to_mask(__m512i a, __m512i b) {
+		return _mm512_castsi512_pd(_mm512_cmpeq_epi64_mask(a, b));
+	}
+#endif
+
+
 #endif // USE_X86_VECTORIZE
 	void grab_empty_idxs(uint64_t data, uint8_t* idxs, int* count) {
 		int write_i = 0;

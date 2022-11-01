@@ -12,28 +12,14 @@
 #include <cstdio>
 #include <array>
 
+// This file defines various shuffling and moving algorithms for the enjoyment of other files, with special
+// optimizations for various subsets of x86. In general, each algorithm has an implementation for scalars,
+// a template for arrays with set count, and implementations for __m128i, __m256i, and __m512i, conditional
+// on USE_AVX2_VECTORIZE and USE_AVX512_VECTORIZE. These are overloaded.
+//
+// A few implementations are specific to x86 and are not compiled otherwise.
+
 namespace Analysis {
-	namespace fallback {
-		uint64_t shuffle_nibbles(uint64_t data, uint64_t idx);
-
-		// Shuffle entries in array
-		void shuffle_nibbles_arr(uint64_t* result, const uint64_t* data, const uint64_t* idx, int len);
-		void shuffle_nibbles_arr_same(uint64_t* result, const uint64_t* data, int len, uint64_t idx);
-
-		template <int cnt>
-		std::array<uint64_t, cnt> shuffle_8x64(std::array<uint64_t, cnt> idxs, const uint64_t values[8]) {
-			decltype(idxs) result;
-			int a = 0;
-
-			for (uint64_t i : idxs) {
-				result[a] = values[i];
-				++a;
-			}
-
-			return result;
-		}
-	}
-
 	namespace constants {
 #define PERM_64(name) constexpr inline uint64_t name 
 		PERM_64(identity) = 0xfedcba9876543210;
@@ -49,6 +35,28 @@ namespace Analysis {
 
 	// Shuffle a 64-bit chunk of 16 nibbles by indices in idx, choosing the best implementation at run time
 	uint64_t shuffle_nibbles(uint64_t data, uint64_t idx);
+	// generate 4-bits one for each zero nibble, and 4-bits zero for each nonzero nibble
+	uint64_t mask_zero_nibbles(uint64_t data);	
+
+	// Count number of nonzero/zero nibbles to int
+	int count_tiles(uint64_t data);
+	int count_empty(uint64_t data);
+
+	uint64_t count_rows(uint64_t data);
+	uint8_t nibble_max(uint64_t data);
+	
+	// sum of the tiles -- as powers of two, not scalar
+	uint32_t tile_sum(uint64_t data);
+
+	// Create an array of all empty indices in a position
+	void grab_empty_idxs(uint64_t data, uint8_t* idxs, int* count);
+
+	// Remove duplicate positions ON THE ASSUMPTION that any duplicates are necessarily contiguous/consecutive. Write the frequencies
+	// of each position to result_freqs
+	void dedup_positions_consecutive(const uint64_t* __restrict__ positions, int count, uint64_t* __restrict__ results, int* result_freqs, int* result_count);
+
+	// Whether generated is a valid next-tile position from the base position
+	bool is_valid_gen_tile(uint64_t generated, uint64_t base);
 
 #if USE_X86_VECTORIZE
 	// Shuffle 64-bit chunks of nibbles in parallel
@@ -81,28 +89,6 @@ namespace Analysis {
 	int detect_4x16_dup(__m512i data);
 #endif
 	
-	// generate 4-bits one for each zero nibble, and 4-bits zero for each nonzero nibble
-	uint64_t mask_zero_nibbles(uint64_t data);	
-
-	// Count number of nonzero/zero nibbles to int
-	int count_tiles(uint64_t data);
-	int count_empty(uint64_t data);
-
-	uint64_t count_rows(uint64_t data);
-	uint8_t nibble_max(uint64_t data);
-	
-	// sum of the tiles -- as powers of two, not scalar
-	uint32_t tile_sum(uint64_t data);
-
-	// Create an array of all empty indices in a position
-	void grab_empty_idxs(uint64_t data, uint8_t* idxs, int* count);
-
-	// Remove duplicate positions ON THE ASSUMPTION that any duplicates are necessarily contiguous/consecutive. Write the frequencies
-	// of each position to result_freqs
-	void dedup_positions_consecutive(const uint64_t* __restrict__ positions, int count, uint64_t* __restrict__ results, int* result_freqs, int* result_count);
-
-	// Whether generated is a valid next-tile position from the base position
-	bool is_valid_gen_tile(uint64_t generated, uint64_t base);
 
 #ifdef USE_X86_VECTORIZE
 	__m128i mask_zero_nibbles(__m128i, __m128i);
@@ -113,8 +99,32 @@ namespace Analysis {
 
 	__m128i count_empty(__m128i);
 	__m256i count_empty(__m256i);
-#ifdef USE_AVX512_VECTORIZE
 
+	uint8_t cmp64_to_mask(__m128i, __m128i);
+	uint8_t cmp64_to_mask(__m256i, __m256i);
+#ifdef USE_AVX512_VECTORIZE
+	uint8_t cmp64_to_mask(__m512i, __m512i);
 #endif
 #endif
+	
+	namespace fallback {
+		uint64_t shuffle_nibbles(uint64_t data, uint64_t idx);
+
+		// Shuffle entries in array
+		void shuffle_nibbles_arr(uint64_t* result, const uint64_t* data, const uint64_t* idx, int len);
+		void shuffle_nibbles_arr_same(uint64_t* result, const uint64_t* data, int len, uint64_t idx);
+
+		template <int cnt>
+		std::array<uint64_t, cnt> shuffle_8x64(std::array<uint64_t, cnt> idxs, const uint64_t values[8]) {
+			decltype(idxs) result;
+			int a = 0;
+
+			for (uint64_t i : idxs) {
+				result[a] = values[i];
+				++a;
+			}
+
+			return result;
+		}
+	}
 }

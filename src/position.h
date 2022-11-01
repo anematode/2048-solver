@@ -14,6 +14,7 @@
 
 #include "defs.h"
 #include "shuffle.h"
+#include "move_lut.h"
 #include "rng.h"
 #include <array>
 
@@ -102,9 +103,8 @@ namespace Analysis {
 	/**
 	 * Vector of positions with a given count. 2, 4, or 8 positions may be included if vectorization
 	 * is desired (and the target processor has the requisite instructions).
-	 *
-	 * We implement scalar fallback implementations in this file and specialized vector implementations
-	 * in the .cc file.
+	 * 
+	 * We implement both vector and scalar methods in this file.
 	 */
 	template <int _count, bool _vectorize=can_vectorize<_count> >
 	class PositionV {
@@ -130,11 +130,11 @@ namespace Analysis {
 
 		PositionV();
 		PositionV(const PositionV& p) {
-			tiles = p->tiles;
+			tiles = p.tiles;
 		}
 
 		PositionV& operator=(const PositionV& p) {
-			tiles = p->tiles;
+			tiles = p.tiles;
 			return *this;
 		}
 
@@ -209,7 +209,7 @@ namespace Analysis {
 			VEC_TYPE a;
 
 			for (int i = 0; i < count; ++i)
-				a[i] = tiles[i].move_right();
+				a[i] = Analysis::move_right(tiles[i]);
 
 			return a;
 		}
@@ -240,6 +240,28 @@ namespace Analysis {
 			return ss;
 		}
 
+		PositionV get_next_random(Rng* rng=nullptr) requires (!vectorize) {
+			return *this;
+		}
+
+		static PositionV start_all() requires (!vectorize) {
+			PositionV p;
+			for (int i = 0; i < count; ++i) {
+				p.tiles[i] = Position::start().tiles;
+			}
+			return p;
+		}
+
+		// Compare positions into mask
+		static uint64_t cmp_mask(const PositionV& p1, const PositionV& p2) requires (count <= 64) {
+			return 0;
+		}
+
+#ifdef USE_X86_VECTORIZE
+		static uint64_t cmp_mask(const PositionV& p1, const PositionV& p2) requires (vectorize) {
+			return cmp64_to_mask(p1.tiles, p2.tiles);
+		}
+#endif
 
 #if 0
 #ifdef USE_X86_VECTORIZE

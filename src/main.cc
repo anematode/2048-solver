@@ -33,6 +33,26 @@ int play_dumb_game() {
 	return cnt;
 }
 
+int play_dumb_game_v() {
+	using PV = PositionV<4>;
+	PV pv = PV::start_all();
+
+	int cnt = 0;
+
+	bool s = false;
+	while (0) {
+		++cnt;
+		PV mu = pv.move_right();
+		if (!s) {
+
+		}
+
+		pv = pv.get_next_random();
+	}
+
+	return 0;
+}
+
 int main() {
 
 	/*std::unordered_set<Position> set;

@@ -264,6 +264,7 @@ TEST_CASE("Nibble ops", "[nibble ops]") {
 	}
 
 #ifdef USE_X86_VECTORIZE
+
 	SECTION("x86 cmp") {
 		for (uint64_t *a : tc) {
 			REQUIRE(_mm_cvtsi128_si64x(mask_zero_nibbles(_mm_cvtsi64_si128(a[0]))) == a[1]);
